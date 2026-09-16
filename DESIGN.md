@@ -454,9 +454,11 @@ save/load mid-event.
 | E | Triggers (daily, occasionally) + pawn targeting | **done** — no storyteller coupling, see §5 |
 | F | Mod Options: Events + Settings tabs, browser with Test fire and Reload | **done** |
 | G | JSON writer, event editor, def pickers, New/Edit/Delete | **done** — writer round-trip verified on 11 shapes |
+| H | Active-events window: live phase, next beat ETA, and why a beat is blocked | **done** |
+| I | Storyteller coupling removed outright (§5); git repo initialised | **done** |
 | — | **Run it in RimWorld** | the only thing left before v1 is real |
 | — | Comment-preserving save, and `oneOf` editing in the UI | |
-| — | Active-events view, translations | |
+| — | Translations | |
 | — | Ambient context via `RimTalkPromptAPI` | |
 
 53 checks now run outside the game, covering the parser, the weighted-table roll, every
