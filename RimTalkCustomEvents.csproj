@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <GameVersion Condition=" '$(GameVersion)' == '' ">1.6</GameVersion>
+        <OutputType>Library</OutputType>
+        <TargetFramework>net48</TargetFramework>
+        <PlatformTarget>x64</PlatformTarget>
+        <RootNamespace>RimTalkCustomEvents</RootNamespace>
+        <AssemblyName>RimTalkCustomEvents</AssemblyName>
+        <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+        <LangVersion>latest</LangVersion>
+        <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+        <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
+        <!-- The project lives inside RimWorld/Mods, so we build straight into place. -->
+        <OutputPath>$(GameVersion)\Assemblies</OutputPath>
+
+        <!-- RimWorld root, inferred from this project's location (Mods/<mod>/ -> ../..). -->
+        <RimWorldDir Condition=" '$(RimWorldDir)' == '' AND '$(RIMWORLD_DIR)' != '' ">$(RIMWORLD_DIR)</RimWorldDir>
+        <RimWorldDir Condition=" '$(RimWorldDir)' == '' ">$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\..'))</RimWorldDir>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+        <Optimize>true</Optimize>
+        <DebugSymbols>false</DebugSymbols>
+        <DebugType>none</DebugType>
+    </PropertyGroup>
+
+    <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+        <Optimize>false</Optimize>
+        <DebugSymbols>true</DebugSymbols>
+        <DebugType>portable</DebugType>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Source\**\*.cs" />
+    </ItemGroup>
+
+    <!-- Reference assemblies: no game install needed to compile. -->
+    <ItemGroup>
+        <PackageReference Include="Krafs.Rimworld.Ref" Version="$(GameVersion).*-*" PrivateAssets="All" />
+        <PackageReference Include="Lib.Harmony.Ref" Version="2.*" PrivateAssets="All" />
+    </ItemGroup>
+
+    <!-- Locate RimTalk.dll: Steam Workshop first, then a local Mods install. -->
+    <PropertyGroup>
+        <SteamAppsDir>$([System.IO.Path]::GetFullPath('$(RimWorldDir)\..\..'))</SteamAppsDir>
+        <WorkshopRimTalkDll>$(SteamAppsDir)\workshop\content\294100\3551203752\$(GameVersion)\Assemblies\RimTalk.dll</WorkshopRimTalkDll>
+        <LocalRimTalkDll>$(RimWorldDir)\Mods\RimTalk\$(GameVersion)\Assemblies\RimTalk.dll</LocalRimTalkDll>
+
+        <RimTalkDllPath Condition=" '$(RimTalkDll)' != '' ">$(RimTalkDll)</RimTalkDllPath>
+        <RimTalkDllPath Condition=" '$(RimTalkDllPath)' == '' AND Exists('$(WorkshopRimTalkDll)') ">$(WorkshopRimTalkDll)</RimTalkDllPath>
+        <RimTalkDllPath Condition=" '$(RimTalkDllPath)' == '' AND Exists('$(LocalRimTalkDll)') ">$(LocalRimTalkDll)</RimTalkDllPath>
+    </PropertyGroup>
+
+    <Target Name="VerifyRimTalkReference" BeforeTargets="ResolveReferences">
+        <Error Condition=" '$(RimTalkDllPath)' == '' "
+               Text="Could not find RimTalk.dll. Looked in:%0A  $(WorkshopRimTalkDll)%0A  $(LocalRimTalkDll)%0APass an explicit path with -p:RimTalkDll=C:\path\to\RimTalk.dll" />
+    </Target>
+
+    <ItemGroup Condition=" '$(RimTalkDllPath)' != '' ">
+        <Reference Include="RimTalk">
+            <HintPath>$(RimTalkDllPath)</HintPath>
+            <Private>false</Private>
+        </Reference>
+    </ItemGroup>
+
+</Project>

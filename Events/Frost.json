@@ -1,0 +1,107 @@
+{
+  // Starter event. Copied into <Config>/RimTalkCustomEvents/Events/ on first run;
+  // edit the copy there, not this one.
+  //
+  // Comments, trailing commas and line breaks inside strings are all allowed.
+
+  "defName": "Frost",
+  "label": "frost",
+  "description": "A creeping supernatural chill that ends in a vision of the frozen dead.",
+  "enabled": true,
+
+  "phases": {
+    // A phase is either a bare string, or an object with "text" plus "effects".
+
+    "beginning": "A sudden, sharp chill races up their spine, making their hair stand on end and breaking their rhythm for a moment.",
+
+    "continue": {
+      // Replayed once per CONTINUE beat. How many beats there are, and when they
+      // land, comes from "timing" below.
+      "text": "They feel subtly colder and colder as the day progresses; they might hunch their shoulders or rub their arms while working, but the cold is mostly internal.",
+
+      "effects": [
+        // Severity accumulates across beats by default, so three beats of 0.2
+        // leave them at 0.6 by the time END fires. Use "mode": "set" for an
+        // absolute value instead.
+        { "hediff": { "def": "RTCE_FrostTouched", "severity": 0.2 } },
+        { "need": { "def": "Comfort", "offset": -0.1 } }
+      ]
+    },
+
+    "end": {
+      "text": "An intense, bone-deep freezing sensation. They wrap themselves tightly in their clothes (if any) and shiver violently. Then, a spectral hand grips their throat and they see a vision of a thousand frozen corpses surrounding them; then it vanishes and the event ends.",
+
+      "effects": [
+        // A weighted table picks exactly one arm. Most of the time the vision
+        // passes; occasionally the cold follows it out into the world.
+        //
+        // "incident" fires a real RimWorld incident, so any incident from any
+        // loaded mod works here — not just vanilla ones.
+        {
+          "oneOf": [
+            { "weight": 0.3, "incident": "ColdSnap" },
+            { "weight": 0.7, "nothing": true }
+          ]
+        }
+      ]
+    }
+  },
+
+  "timing": {
+    "durationHours": 12,
+
+    // Omit continueCount and the scheduler picks one: roughly a beat every four
+    // hours, so 12h gives three. Set it here to override that.
+    "continueCount": 3,
+
+    // "even" spreads beats evenly (nudged by continueJitter); "random" scatters
+    // them across the window so the escalation feels less metronomic.
+    "continueSpacing": "even",
+    "continueJitter": 0.25,
+
+    "onBlocked": "retry",
+    "beatTimeoutHours": 2,
+    "minBeatGapHours": 0.5
+  },
+
+  "trigger": {
+    // "occasionally" = a mean-time-between roll, checked once an in-game hour.
+    // Other modes: "daily" (fires at dailyHour), "manual" (fire it yourself).
+    //
+    // This mod paces itself and never touches RimWorld's storyteller.
+    "mode": "occasionally",
+
+    // Roughly once every 6 days, scaled by the frequency slider in mod settings.
+    "mtbDays": 6,
+
+    // Only start between 04:00 and 20:00. A window can wrap midnight, e.g. [22, 4].
+    "allowedTimeOfDay": [4, 20]
+  },
+
+  "target": {
+    "pawnKinds": ["Colonist"],
+    "excludeIfHediff": ["Frostbite"],
+    "weightByTrait": { "Psychically sensitive": 2.0 },
+    "cooldownDays": 15,
+    "exclusionTags": ["supernatural-chill"]
+  },
+
+  // Built into a real HediffDef at load, so the event is self-contained: the
+  // prompts and the mechanical consequence live in one file.
+  "customHediffs": [
+    {
+      "defName": "RTCE_FrostTouched",
+      "label": "frost-touched",
+      "description": "Something cold looked back.",
+      "isBad": true,
+      "maxSeverity": 1.0,
+      "severityPerDay": -0.1,
+      "stages": [
+        {
+          "minSeverity": 0.0,
+          "statOffsets": { "ComfyTemperatureMin": -8 }
+        }
+      ]
+    }
+  ]
+}

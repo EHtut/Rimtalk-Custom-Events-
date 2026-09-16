@@ -1,0 +1,126 @@
+using System.Collections.Generic;
+using RimTalkCustomEvents.Data;
+using RimTalkCustomEvents.Util;
+using RimWorld;
+using Verse;
+
+namespace RimTalkCustomEvents.Scheduling
+{
+    /// <summary>
+    /// Decides when automatically triggered events fire.
+    ///
+    /// Checked once per in-game hour, which is plenty for triggers measured in hours and
+    /// days, and keeps the per-tick cost at nothing.
+    /// </summary>
+    public static class TriggerScheduler
+    {
+        public const int CheckIntervalTicks = GenDate.TicksPerHour;
+
+        /// <summary>
+        /// Rolls every eligible event once. Called on the hour by the game component, which
+        /// owns the per-event bookkeeping passed in here.
+        /// </summary>
+        public static void CheckAll(
+            CustomEventsGameComponent component,
+            Dictionary<string, int> lastAutoFireTick,
+            Dictionary<string, int> lastDailyDay)
+        {
+            var settings = RimTalkCustomEventsMod.Settings;
+            if (settings == null || !settings.enabled) return;
+            if (settings.frequencyMultiplier <= 0f) return;
+
+            var map = Find.CurrentMap;
+            if (map == null) return;
+
+            var now = Find.TickManager.TicksGame;
+            var hour = GenLocalDate.HourOfDay(map);
+            var day = GenDate.DaysPassed;
+
+            foreach (var def in EventStore.AllEnabled)
+            {
+                var mode = def.Trigger.Mode;
+                if (mode == TriggerMode.Manual) continue;
+
+                if (!WithinStartWindow(def, hour)) continue;
+                if (!PastRefireDelay(def, lastAutoFireTick, now)) continue;
+
+                if (!ShouldFire(def, mode, hour, day, lastDailyDay, settings.frequencyMultiplier)) continue;
+
+                Fire(component, def, map, lastAutoFireTick, lastDailyDay, now, day);
+            }
+        }
+
+        private static bool ShouldFire(
+            CustomEvent def,
+            TriggerMode mode,
+            int hour,
+            int day,
+            Dictionary<string, int> lastDailyDay,
+            float frequencyMultiplier)
+        {
+            if (mode == TriggerMode.Daily)
+            {
+                if (hour != def.Trigger.DailyHour) return false;
+
+                // Once per day: the hourly check would otherwise fire repeatedly while the
+                // clock sits on the target hour.
+                if (lastDailyDay.TryGetValue(def.DefName, out var firedOn) && firedOn == day) return false;
+
+                return Rand.Chance(def.Trigger.DailyChance * frequencyMultiplier);
+            }
+
+            // Occasionally: a mean-time-between roll of this mod's own. A higher frequency
+            // multiplier shortens the mean time between occurrences.
+            var mtb = def.Trigger.MtbDays / frequencyMultiplier;
+            if (mtb <= 0f) return false;
+
+            return Rand.MTBEventOccurs(mtb, GenDate.TicksPerDay, CheckIntervalTicks);
+        }
+
+        private static void Fire(
+            CustomEventsGameComponent component,
+            CustomEvent def,
+            Map map,
+            Dictionary<string, int> lastAutoFireTick,
+            Dictionary<string, int> lastDailyDay,
+            int now,
+            int day)
+        {
+            var pawn = PawnSelector.TryPick(def, map);
+            if (pawn == null)
+            {
+                RTCELog.Debug($"\"{def.Label}\" came up but nobody on the map matched its target filters.");
+                return;
+            }
+
+            if (!component.TryStart(def, pawn, out var reason))
+            {
+                RTCELog.Debug($"\"{def.Label}\" came up for {pawn.LabelShort} but didn't start: {reason}");
+                return;
+            }
+
+            // Only record a fire that actually started, so a blocked roll can retry next hour.
+            lastAutoFireTick[def.DefName] = now;
+            if (def.Trigger.Mode == TriggerMode.Daily) lastDailyDay[def.DefName] = day;
+        }
+
+        private static bool WithinStartWindow(CustomEvent def, int hour)
+        {
+            var min = def.Trigger.StartHourMin;
+            var max = def.Trigger.StartHourMax;
+            if (!min.HasValue || !max.HasValue) return true;
+
+            // A window that wraps past midnight, e.g. 22 to 4.
+            if (min.Value <= max.Value) return hour >= min.Value && hour <= max.Value;
+            return hour >= min.Value || hour <= max.Value;
+        }
+
+        private static bool PastRefireDelay(CustomEvent def, Dictionary<string, int> lastAutoFireTick, int now)
+        {
+            if (def.Trigger.MinRefireDays <= 0f) return true;
+            if (!lastAutoFireTick.TryGetValue(def.DefName, out var last)) return true;
+
+            return now - last >= (int)(def.Trigger.MinRefireDays * GenDate.TicksPerDay);
+        }
+    }
+}

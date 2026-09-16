@@ -1,0 +1,35 @@
+# Build intermediates
+[Oo]bj/
+[Bb]in/
+*.binlog
+
+# The compiled assembly IS committed — players install this repo as the mod folder,
+# and most won't have a .NET SDK to build it themselves. Debug symbols are not.
+*.pdb
+
+# Steam Workshop publishing id, local to whoever uploads
+About/PublishedFileId.txt
+
+# IDEs
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.DotSettings.user
+_ReSharper*/
+
+# NuGet
+packages/
+*.nupkg
+project.lock.json
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Scratch
+*.tmp
+*.bak
+*~
