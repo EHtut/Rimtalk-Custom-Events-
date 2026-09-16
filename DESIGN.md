@@ -377,10 +377,21 @@ start/stop. No rework of anything else.
   the file.
 
   Two honest limits: a `oneOf` weighted table shows as a summary and is edited in the
-  file, and **saving discards comments** — the editor warns when the file it is about
-  to rewrite has any.
+  file, and **saving discards comments**, because serialising goes through the typed
+  model. The editor warns first, and the original is copied to `<name>.json.bak` so
+  hand-written notes are never actually lost.
 - **Def pickers.** Every def field opens a searchable list of what this playthrough
   actually loaded, filterable by source mod. This is the finder (§6) doing its job.
+- **Prompt preview.** Shows the exact text RimTalk receives, wrapper applied. Built
+  through the same `PromptBuilder` the scheduler uses, so it cannot drift — a preview
+  showing something other than what the model gets is worse than none.
+- **Active events window.** Live phase, elapsed vs total hours, beats done, and when a
+  beat is stuck, the specific reason. Plus Go to and Cancel.
+- **Diagnostics window.** One pass over everything that makes an event silent: master
+  toggle, frequency at zero, no pawn categories enabled, RimTalk tracking nobody,
+  monologues disabled, load failures, missing def references, and **eligible pawn count
+  per event on this map**. Silence has many causes that look identical from outside;
+  checking them one at a time costs a restart each.
 - **Mod Options — Settings tab.** Done: master toggle, global frequency multiplier,
   concurrency caps, eligibility (prisoners / slaves / guests / animals), prompt
   wrapper template, verbose logging.
@@ -457,11 +468,12 @@ save/load mid-event.
 | H | Active-events window: live phase, next beat ETA, and why a beat is blocked | **done** |
 | I | Storyteller coupling removed outright (§5); git repo initialised | **done** |
 | — | **Run it in RimWorld** | the only thing left before v1 is real |
+| J | Prompt preview, active-events window, diagnostics report, .bak on comment-losing save | **done** |
 | — | Comment-preserving save, and `oneOf` editing in the UI | |
 | — | Translations | |
 | — | Ambient context via `RimTalkPromptAPI` | |
 
-53 checks now run outside the game, covering the parser, the weighted-table roll, every
+70 checks now run outside the game, covering the parser, the weighted-table roll, every
 authoring form, and a full write → reparse → compare round trip.
 
 ### Audit, this session

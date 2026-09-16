@@ -320,6 +320,22 @@ namespace RimTalkCustomEvents.Data
 
                 var text = ToJson(e);
 
+                // Serialising goes through the typed model, so comments in the original
+                // can't survive. Keep a copy rather than destroying hand-written notes —
+                // these files are prose, and the comments are often the useful part.
+                if (File.Exists(path) && HasComments(path))
+                {
+                    try
+                    {
+                        File.Copy(path, path + ".bak", true);
+                    }
+                    catch
+                    {
+                        // A failed backup shouldn't block the save; the warning in the
+                        // editor already told them comments would go.
+                    }
+                }
+
                 // Write beside the target then swap, so a failure mid-write can't leave a
                 // half-written file where a working event used to be.
                 var temp = path + ".tmp";

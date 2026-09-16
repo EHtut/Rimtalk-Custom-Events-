@@ -341,15 +341,20 @@ namespace RimTalkCustomEvents.Scheduling
             }
         }
 
-        private string PhaseLabel(CustomEvent def)
+        private string PhaseName()
         {
             switch (Phase)
             {
                 case EventPhaseState.Beginning: return "BEGINNING";
-                case EventPhaseState.Continuing: return $"CONTINUE {BeatIndex + 1}/{ContinueBeatTicks.Count}";
+                case EventPhaseState.Continuing: return "CONTINUE";
                 case EventPhaseState.Ending: return "END";
                 default: return Phase.ToString().ToUpperInvariant();
             }
+        }
+
+        private string PhaseLabel(CustomEvent def)
+        {
+            return PromptBuilder.PhaseLabel(PhaseName(), BeatIndex + 1, ContinueBeatTicks.Count);
         }
 
         /// <summary>
@@ -359,20 +364,15 @@ namespace RimTalkCustomEvents.Scheduling
         /// </summary>
         private string BuildPrompt(CustomEvent def, string text)
         {
-            var wrapper = RimTalkCustomEventsMod.Settings?.promptWrapper;
-            if (string.IsNullOrEmpty(wrapper)) wrapper = Settings.RTCESettings.DefaultPromptWrapper;
-
-            var phaseName = Phase == EventPhaseState.Continuing ? "CONTINUE" : PhaseLabel(def);
-
-            var sb = new StringBuilder(wrapper);
-            sb.Replace("{event}", def.Label ?? def.DefName);
-            sb.Replace("{phase}", PhaseLabel(def));
-            sb.Replace("{phaseName}", phaseName);
-            sb.Replace("{index}", (BeatIndex + 1).ToString());
-            sb.Replace("{total}", ContinueBeatTicks.Count.ToString());
-            sb.Replace("{pawn}", Pawn?.LabelShort ?? "");
-            sb.Replace("{text}", text);
-            return sb.ToString();
+            return PromptBuilder.Build(
+                RimTalkCustomEventsMod.Settings?.promptWrapper,
+                def.Label ?? def.DefName,
+                PhaseLabel(def),
+                PhaseName(),
+                BeatIndex + 1,
+                ContinueBeatTicks.Count,
+                Pawn?.LabelShort,
+                text);
         }
 
         /// <summary>Short line for the dev overlay.</summary>

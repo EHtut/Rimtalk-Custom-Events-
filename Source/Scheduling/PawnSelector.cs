@@ -32,7 +32,8 @@ namespace RimTalkCustomEvents.Scheduling
             return index < 0 ? null : candidates[index];
         }
 
-        private static bool IsEligible(CustomEvent def, Pawn pawn)
+        /// <summary>Public so diagnostics can report the same eligibility the picker uses.</summary>
+        public static bool IsEligible(CustomEvent def, Pawn pawn)
         {
             if (pawn == null || pawn.Dead || !pawn.Spawned) return false;
             if (!CategoryAllowed(pawn)) return false;

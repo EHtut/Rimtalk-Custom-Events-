@@ -69,6 +69,7 @@ namespace RimTalkCustomEvents.UI
 
             DrawIdentity(listing);
             DrawPhases(listing);
+            DrawPreview(listing);
             DrawTiming(listing);
             DrawTrigger(listing);
             DrawTarget(listing);
@@ -92,7 +93,8 @@ namespace RimTalkCustomEvents.UI
             {
                 var previous = GUI.color;
                 GUI.color = Color.yellow;
-                listing.Label("This file has comments. Saving from here rewrites it and the comments will be lost.");
+                listing.Label("This file has comments. Saving rewrites it and the comments go — "
+                              + "the original is kept alongside as a .bak.");
                 GUI.color = previous;
             }
 
@@ -237,6 +239,64 @@ namespace RimTalkCustomEvents.UI
             }
 
             Find.WindowStack.Add(new FloatMenu(options));
+        }
+
+        // -------------------------------------------------------------- preview
+
+        private bool _showPreview;
+
+        /// <summary>
+        /// Exactly what RimTalk receives, wrapper and all — built through the same
+        /// PromptBuilder the scheduler uses, so this can't drift from the real thing.
+        /// </summary>
+        private void DrawPreview(Listing_Standard listing)
+        {
+            if (listing.ButtonText(_showPreview ? "Hide prompt preview" : "Show prompt preview", null, 0.45f))
+            {
+                _showPreview = !_showPreview;
+            }
+
+            if (!_showPreview)
+            {
+                listing.GapLine();
+                return;
+            }
+
+            var wrapper = RimTalkCustomEventsMod.Settings?.promptWrapper;
+            var label = string.IsNullOrEmpty(_event.Label) ? _event.DefName : _event.Label;
+            var beats = _event.Timing.ContinueCount;
+
+            var previous = GUI.color;
+            GUI.color = new Color(0.7f, 0.85f, 0.7f);
+            Text.Font = GameFont.Tiny;
+
+            listing.Label("This is the text sent to RimTalk. \"Colonist\" stands in for the pawn's name.");
+
+            Preview(listing, wrapper, label, "BEGINNING", 1, beats, _event.Phases.Beginning.Text);
+
+            if (_event.HasContinueText && beats > 0)
+            {
+                // Show the middle beat: the index and total are what change between them.
+                var middle = Math.Max(1, (beats + 1) / 2);
+                Preview(listing, wrapper, label, "CONTINUE", middle, beats, _event.Phases.Continue.Text);
+            }
+
+            Preview(listing, wrapper, label, "END", 1, beats, _event.Phases.End.Text);
+
+            Text.Font = GameFont.Small;
+            GUI.color = previous;
+            listing.GapLine();
+        }
+
+        private static void Preview(Listing_Standard listing, string wrapper, string eventLabel,
+            string phaseName, int index, int total, string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            var phaseLabel = PromptBuilder.PhaseLabel(phaseName, index, total);
+            listing.Label(PromptBuilder.Build(wrapper, eventLabel, phaseLabel, phaseName,
+                index, total, "Colonist", text));
+            listing.Gap(4f);
         }
 
         // --------------------------------------------------------------- timing

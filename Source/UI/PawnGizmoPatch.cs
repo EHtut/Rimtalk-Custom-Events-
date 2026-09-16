@@ -86,6 +86,9 @@ namespace RimTalkCustomEvents.UI
             options.Add(new FloatMenuOption("Show active events…", () =>
                 Find.WindowStack.Add(new ActiveEventsWindow())));
 
+            options.Add(new FloatMenuOption("Diagnostics — why isn't anything firing?", () =>
+                Find.WindowStack.Add(new DiagnosticsWindow())));
+
             options.Add(new FloatMenuOption("Reload event files from disk", () =>
             {
                 EventStore.Reload();

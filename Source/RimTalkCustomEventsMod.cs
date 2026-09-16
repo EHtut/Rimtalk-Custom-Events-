@@ -107,6 +107,19 @@ namespace RimTalkCustomEvents
                     false);
             }
 
+            var buttons2 = listing.GetRect(30f);
+            var half = buttons2.width / 2f;
+
+            if (Widgets.ButtonText(new Rect(buttons2.x, buttons2.y, half - 4f, buttons2.height), "Diagnostics"))
+            {
+                Find.WindowStack.Add(new UI.DiagnosticsWindow());
+            }
+
+            if (Widgets.ButtonText(new Rect(buttons2.x + half, buttons2.y, half, buttons2.height), "Active events"))
+            {
+                Find.WindowStack.Add(new UI.ActiveEventsWindow());
+            }
+
             listing.Gap(6f);
 
             foreach (var problem in EventStore.LoadProblems)
