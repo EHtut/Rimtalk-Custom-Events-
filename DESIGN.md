@@ -10,7 +10,7 @@ incident behind at any phase.
 
 **Status:** v1 is feature-complete and compiles — events, per-phase effects, runtime
 hediffs, self-paced triggers, targeting, the JSON writer, three CONTINUE modes, and the
-Mod Options browser, editor and diagnostics. 89 checks pass outside the game.
+Mod Options browser, editor and diagnostics. 102 checks pass outside the game.
 **Nothing has been run inside RimWorld yet**; that is the one remaining gate.
 
 ---
@@ -492,10 +492,26 @@ save/load mid-event.
 | — | Comment-preserving save, and `oneOf` editing in the UI | |
 | — | Translations | |
 
-89 checks now run outside the game, covering the parser, the weighted-table roll, every
+102 checks now run outside the game, covering the parser, the weighted-table roll, every
 authoring form, and a full write → reparse → compare round trip.
 
-### Audit, this session
+### Second audit (editor, writer, modifiers)
+
+Four more real bugs, all fixed:
+
+- **The editor mutated the live event.** It held the same `CustomEvent` the store hands
+  the scheduler, so Cancel undid nothing and a running instance — which re-reads its
+  definition every tick — could pick up half-typed text mid-beat. It now edits a deep
+  copy, cloned through the writer and parser so it stays faithful as the schema grows.
+- **Modifier text could stay glued to a pawn's prompts forever.** Switching the mod off
+  mid-event returned from the tick before the sync ran, leaving the injected text with
+  nothing left running to clear it; loading a second save inherited the first one's
+  modifiers, since the registry is static. Both now clear.
+- **Renaming an event left it in the old filename**, so the folder stopped matching the
+  events in it. Save now writes the new name and removes the old file afterwards.
+- The Events tab described a Modifier event as "CONTINUE ×3" when it has no beats.
+
+### First audit (scheduler, effects)
 
 Five findings; three were real bugs, now fixed:
 

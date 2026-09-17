@@ -223,9 +223,21 @@ namespace RimTalkCustomEvents
 
         private static string Summarise(CustomEvent e)
         {
-            var beats = e.HasContinueText
-                ? $"BEGINNING → CONTINUE ×{e.Timing.ContinueCount} → END"
-                : "BEGINNING → END";
+            string beats;
+            if (!e.HasContinueText)
+            {
+                beats = "BEGINNING → END";
+            }
+            else if (e.Phases.Continue.Mode == ContinueMode.Modifier)
+            {
+                // A modifier has no beats of its own; saying "CONTINUE ×3" would be a lie.
+                beats = "BEGINNING → END, modifier throughout";
+            }
+            else
+            {
+                var kind = e.Phases.Continue.Mode == ContinueMode.Beat ? "beats" : "CONTINUE";
+                beats = $"BEGINNING → {kind} ×{e.Timing.ContinueCount} → END";
+            }
 
             var trigger = e.Trigger.Mode == TriggerMode.Daily
                 ? $"daily at {e.Trigger.DailyHour}:00"

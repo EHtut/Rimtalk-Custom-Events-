@@ -50,6 +50,9 @@ namespace RimTalkCustomEvents.Scheduling
 
         public CustomEventsGameComponent(Game game)
         {
+            // The registry is static and outlives a game, so loading a different save would
+            // otherwise inherit whatever modifiers the previous one had running.
+            ModifierRegistry.Clear();
         }
 
         public static CustomEventsGameComponent Current => Verse.Current.Game?.GetComponent<CustomEventsGameComponent>();
@@ -61,7 +64,13 @@ namespace RimTalkCustomEvents.Scheduling
         public override void GameComponentTick()
         {
             var settings = RimTalkCustomEventsMod.Settings;
-            if (settings == null || !settings.enabled) return;
+            if (settings == null || !settings.enabled)
+            {
+                // Switching the mod off mid-event would otherwise leave modifier text glued
+                // into every prompt for that pawn, with nothing left running to clear it.
+                if (ModifierRegistry.HasAny) ModifierRegistry.Clear();
+                return;
+            }
 
             var ticks = Find.TickManager.TicksGame;
 

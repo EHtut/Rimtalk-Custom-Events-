@@ -30,7 +30,7 @@ namespace RimTalkCustomEvents.UI
         public EventEditorWindow(CustomEvent existing)
         {
             _isNew = existing == null;
-            _event = existing ?? NewEvent();
+            _event = existing != null ? Clone(existing) : NewEvent();
             _sourceHasComments = !_isNew && EventWriter.HasComments(_event.SourcePath);
 
             doCloseX = true;
@@ -39,6 +39,30 @@ namespace RimTalkCustomEvents.UI
         }
 
         public override Vector2 InitialSize => new Vector2(760f, 800f);
+
+        /// <summary>
+        /// Deep copy, so the editor never touches the event the scheduler is reading.
+        /// Without this, Cancel wouldn't undo anything and a running instance could pick up
+        /// half-typed text mid-beat — it looks up its definition from the store every tick.
+        ///
+        /// Goes through the writer and parser rather than a hand-written copy, so it stays
+        /// faithful automatically as the schema grows; the round-trip tests already prove
+        /// that path preserves everything.
+        /// </summary>
+        private static CustomEvent Clone(CustomEvent source)
+        {
+            try
+            {
+                return CustomEvent.FromJson(Json.Parse(EventWriter.ToJson(source)), source.SourcePath);
+            }
+            catch (Exception ex)
+            {
+                RTCELog.Error(
+                    $"Could not copy \"{source.DefName}\" for editing, so edits will apply live "
+                    + $"and Cancel will not undo them: {ex.Message}");
+                return source;
+            }
+        }
 
         private static CustomEvent NewEvent()
         {

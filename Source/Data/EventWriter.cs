@@ -343,9 +343,22 @@ namespace RimTalkCustomEvents.Data
 
             try
             {
-                var path = !string.IsNullOrEmpty(e.SourcePath)
-                    ? e.SourcePath
-                    : Path.Combine(folder, e.DefName + ".json");
+                // Renaming an event should rename its file too, otherwise "Frost" ends up
+                // living in OldName.json and the folder stops matching the events in it.
+                var previousPath = e.SourcePath;
+                var path = Path.Combine(folder, e.DefName + ".json");
+
+                if (!string.IsNullOrEmpty(previousPath)
+                    && string.Equals(Path.GetFileNameWithoutExtension(previousPath), e.DefName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    // Same name: keep writing wherever it already lives.
+                    path = previousPath;
+                }
+
+                var renamedFrom = string.Equals(path, previousPath, StringComparison.OrdinalIgnoreCase)
+                    ? null
+                    : previousPath;
 
                 var text = ToJson(e);
 
@@ -372,6 +385,20 @@ namespace RimTalkCustomEvents.Data
 
                 if (File.Exists(path)) File.Delete(path);
                 File.Move(temp, path);
+
+                // Only remove the old file once the new one is safely written.
+                if (!string.IsNullOrEmpty(renamedFrom) && File.Exists(renamedFrom))
+                {
+                    try
+                    {
+                        File.Delete(renamedFrom);
+                    }
+                    catch
+                    {
+                        // Leaving a stale duplicate is untidy but harmless; the reload will
+                        // report the clash rather than losing anything.
+                    }
+                }
 
                 e.SourcePath = path;
                 return path;
