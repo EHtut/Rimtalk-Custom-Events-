@@ -404,10 +404,12 @@ start/stop. No rework of anything else.
   read half-typed text. Covers identity, all three phases, both CONTINUE parts,
   per-phase effects, timing and trigger.
 
-  Two honest limits: a `oneOf` weighted table shows as a summary and is edited in the
-  file, and **saving discards comments**, because serialising goes through the typed
-  model. The editor warns first, and the original is copied to `<name>.json.bak` so
-  hand-written notes are never actually lost.
+  Weighted tables are editable in place, showing each arm's resulting **percentage**
+  next to its weight — a raw "0.3" means nothing without knowing the others.
+
+  One honest limit: **saving discards comments**, because serialising goes through the
+  typed model. The editor warns first, and the original is copied to `<name>.json.bak`
+  so hand-written notes are never actually lost.
 - **Def pickers.** Every def field opens a searchable list of what this playthrough
   actually loaded, filterable by source mod. This is the finder (§6) doing its job.
 - **Prompt preview.** Shows the exact text RimTalk receives, wrapper applied. Built
@@ -537,7 +539,6 @@ Last reviewed 2026-09-17. **Running in-game and confirmed working.**
 
 | Gap | Note |
 |---|---|
-| **`oneOf` tables aren't editable in the UI** | Shown as a read-only summary; edit in the file. |
 | **No Import / Export** | No way to share a single event from inside the game. |
 | **`relationship` effect** | Designed but never built. |
 | **Multi-pawn events** | Deliberately out of scope; every event targets one pawn. The schema leaves room for a `roles` block. |

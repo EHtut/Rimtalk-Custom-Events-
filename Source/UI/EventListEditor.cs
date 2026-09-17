@@ -430,6 +430,12 @@ namespace RimTalkCustomEvents.UI
         {
             foreach (var effect in new List<PhaseEffect>(effects))
             {
+                if (effect.HasOneOf)
+                {
+                    DrawWeightedTable(listing, effects, effect, offerScaling);
+                    continue;
+                }
+
                 var row = listing.GetRect(24f);
                 Text.Font = GameFont.Tiny;
                 Widgets.Label(new Rect(row.x + 16f, row.y + 2f, row.width - 60f, row.height), "• " + Describe(effect));
@@ -440,7 +446,7 @@ namespace RimTalkCustomEvents.UI
                     effects.Remove(effect);
                 }
 
-                if (offerScaling && !effect.HasOneOf)
+                if (offerScaling)
                 {
                     var scale = effect.ScaleWithIntensity;
                     listing.CheckboxLabeled("      grows with intensity", ref scale);
@@ -448,12 +454,70 @@ namespace RimTalkCustomEvents.UI
                 }
             }
 
-            if (listing.ButtonText("Add effect…", null, 0.32f)) ShowAddEffectMenu(effects);
+            if (listing.ButtonText("Add effect…", null, 0.32f)) ShowAddEffectMenu(effects, offerScaling);
+        }
+
+        /// <summary>
+        /// A weighted table: exactly one arm fires. Weights are relative, so the UI shows the
+        /// resulting percentage too — "0.3" alongside two other arms means nothing on its own.
+        /// </summary>
+        private static void DrawWeightedTable(Listing_Standard listing, List<PhaseEffect> owner,
+            PhaseEffect table, bool offerScaling)
+        {
+            var header = listing.GetRect(24f);
+            Widgets.Label(new Rect(header.x + 8f, header.y + 2f, header.width - 60f, header.height),
+                $"⚖ One of these ({table.OneOf.Count}):");
+
+            if (Widgets.ButtonText(new Rect(header.xMax - 28f, header.y, 24f, 22f), "×"))
+            {
+                owner.Remove(table);
+                return;
+            }
+
+            var total = 0f;
+            foreach (var arm in table.OneOf) total += Math.Max(0f, arm.Weight);
+
+            PendingWeights.Clear();
+
+            foreach (var arm in new List<PhaseEffect>(table.OneOf))
+            {
+                var row = listing.GetRect(26f);
+
+                var share = total > 0f ? Math.Max(0f, arm.Weight) / total : 0f;
+                Text.Font = GameFont.Tiny;
+                Widgets.Label(new Rect(row.x + 28f, row.y + 3f, row.width * 0.44f, row.height),
+                    $"{share:P0}  {Describe(arm)}");
+                Text.Font = GameFont.Small;
+
+                // Key includes the arm's identity so two arms don't share a text buffer.
+                var key = "w_" + table.GetHashCode() + "_" + table.OneOf.IndexOf(arm);
+                arm.Weight = Number(listing, "", key, arm.Weight, 0f, 1000f, row, 0.76f);
+
+                if (Widgets.ButtonText(new Rect(row.xMax - 28f, row.y, 24f, 22f), "×"))
+                {
+                    table.OneOf.Remove(arm);
+                }
+            }
+
+            if (total <= 0f)
+            {
+                var previous = GUI.color;
+                GUI.color = Color.yellow;
+                Text.Font = GameFont.Tiny;
+                listing.Label("      Every weight is zero — nothing will ever be picked.");
+                Text.Font = GameFont.Small;
+                GUI.color = previous;
+            }
+
+            if (listing.ButtonText("Add outcome…", null, 0.32f))
+            {
+                ShowAddEffectMenu(table.OneOf, offerScaling, includeNothing: true);
+            }
         }
 
         private static string Describe(PhaseEffect fx)
         {
-            if (fx.HasOneOf) return $"weighted table, {fx.OneOf.Count} arms (edit in the file)";
+            if (fx.HasOneOf) return $"one of {fx.OneOf.Count}";
 
             var bits = new List<string>();
             if (fx.Hediff != null) bits.Add($"hediff {fx.Hediff.Def} {(fx.Hediff.Mode == HediffApplyMode.Add ? "+" : "=")}{fx.Hediff.Severity:0.##}");
@@ -471,7 +535,8 @@ namespace RimTalkCustomEvents.UI
             return bits.Count == 0 ? "(empty)" : string.Join(", ", bits.ToArray());
         }
 
-        private static void ShowAddEffectMenu(List<PhaseEffect> effects)
+        private static void ShowAddEffectMenu(List<PhaseEffect> effects, bool offerScaling = false,
+            bool includeNothing = false)
         {
             var options = new List<FloatMenuOption>
             {
@@ -489,6 +554,18 @@ namespace RimTalkCustomEvents.UI
                 var captured = other;
                 options.Add(new FloatMenuOption($"Chain into \"{captured.Label}\"",
                     () => effects.Add(new PhaseEffect { ChainEvent = captured.DefName })));
+            }
+
+            // "nothing" only means something inside a table, as the arm where it fizzles.
+            if (includeNothing)
+            {
+                options.Add(new FloatMenuOption("Nothing happens (a chance to fizzle)",
+                    () => effects.Add(new PhaseEffect { Nothing = true })));
+            }
+            else
+            {
+                options.Add(new FloatMenuOption("One of several (weighted table)…",
+                    () => effects.Add(new PhaseEffect { OneOf = new List<PhaseEffect>() })));
             }
 
             Find.WindowStack.Add(new FloatMenu(options));
