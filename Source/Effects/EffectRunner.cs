@@ -17,7 +17,11 @@ namespace RimTalkCustomEvents.Effects
     /// </summary>
     public static class EffectRunner
     {
-        public static void RunAll(List<PhaseEffect> effects, Pawn pawn, string eventLabel)
+        /// <param name="intensity">
+        /// Multiplier for effects marked scaleWithIntensity. 1 for everything except a
+        /// Beat-mode CONTINUE, where it climbs across the beats.
+        /// </param>
+        public static void RunAll(List<PhaseEffect> effects, Pawn pawn, string eventLabel, float intensity = 1f)
         {
             if (effects == null || effects.Count == 0 || pawn == null) return;
 
@@ -25,7 +29,7 @@ namespace RimTalkCustomEvents.Effects
             {
                 try
                 {
-                    Run(effect, pawn, eventLabel);
+                    Run(effect, pawn, eventLabel, intensity);
                 }
                 catch (Exception ex)
                 {
@@ -34,7 +38,7 @@ namespace RimTalkCustomEvents.Effects
             }
         }
 
-        private static void Run(PhaseEffect effect, Pawn pawn, string eventLabel)
+        private static void Run(PhaseEffect effect, Pawn pawn, string eventLabel, float intensity)
         {
             if (effect == null) return;
 
@@ -42,20 +46,23 @@ namespace RimTalkCustomEvents.Effects
             if (effect.HasOneOf)
             {
                 var chosen = RollOneOf(effect.OneOf);
-                if (chosen != null) Run(chosen, pawn, eventLabel);
+                if (chosen != null) Run(chosen, pawn, eventLabel, intensity);
                 return;
             }
 
             if (effect.Nothing) return;
             if (effect.Chance < 1f && !Rand.Chance(effect.Chance)) return;
 
-            if (effect.Hediff != null) ApplyHediff(effect.Hediff, pawn, eventLabel);
+            // Opt-in, so an event that doesn't think about intensity is unaffected.
+            var scale = effect.ScaleWithIntensity ? Math.Max(0f, intensity) : 1f;
+
+            if (effect.Hediff != null) ApplyHediff(effect.Hediff, pawn, eventLabel, scale);
             if (!string.IsNullOrEmpty(effect.Thought)) ApplyThought(effect.Thought, pawn, eventLabel);
-            if (effect.Need != null) ApplyNeed(effect.Need, pawn, eventLabel);
+            if (effect.Need != null) ApplyNeed(effect.Need, pawn, eventLabel, scale);
             if (!string.IsNullOrEmpty(effect.Incident)) FireIncident(effect.Incident, pawn, eventLabel);
             if (!string.IsNullOrEmpty(effect.ChainEvent)) QueueChain(effect.ChainEvent, pawn, eventLabel);
             if (!string.IsNullOrEmpty(effect.TraitDef)) ApplyTrait(effect, pawn, eventLabel);
-            if (!string.IsNullOrEmpty(effect.SkillXpSkill)) ApplySkillXp(effect, pawn, eventLabel);
+            if (!string.IsNullOrEmpty(effect.SkillXpSkill)) ApplySkillXp(effect, pawn, eventLabel, scale);
             if (effect.Items.Count > 0) SpawnItems(effect.Items, pawn, eventLabel);
             if (!string.IsNullOrEmpty(effect.Message)) ShowMessage(effect.Message, pawn);
         }
@@ -71,7 +78,7 @@ namespace RimTalkCustomEvents.Effects
         /// Adds to existing severity by default, which is how a CONTINUE beat escalates:
         /// three beats of +0.2 leave the pawn at 0.6 by END.
         /// </summary>
-        private static void ApplyHediff(EffectHediff spec, Pawn pawn, string eventLabel)
+        private static void ApplyHediff(EffectHediff spec, Pawn pawn, string eventLabel, float scale)
         {
             if (string.IsNullOrEmpty(spec.Def)) return;
 
@@ -109,9 +116,10 @@ namespace RimTalkCustomEvents.Effects
 
             if (existing != null)
             {
+                var amount = spec.Severity * scale;
                 var updated = spec.Mode == HediffApplyMode.Set
-                    ? spec.Severity
-                    : existing.Severity + spec.Severity;
+                    ? amount
+                    : existing.Severity + amount;
 
                 // Reaching zero removes it. Without this a negative severity could never
                 // clear a hediff — which is how an event lifts a curse it applied earlier.
@@ -129,10 +137,10 @@ namespace RimTalkCustomEvents.Effects
 
             // Nothing to reduce, so a negative or zero severity is a no-op rather than
             // a new hediff that starts out already gone.
-            if (spec.Severity <= 0f) return;
+            if (spec.Severity * scale <= 0f) return;
 
             var hediff = HediffMaker.MakeHediff(def, pawn, part);
-            hediff.Severity = Math.Min(spec.Severity, def.maxSeverity);
+            hediff.Severity = Math.Min(spec.Severity * scale, def.maxSeverity);
             pawn.health.AddHediff(hediff, part);
             RTCELog.Debug($"\"{eventLabel}\": gave {pawn.LabelShort} {def.label} at {hediff.Severity:0.##}");
         }
@@ -163,7 +171,7 @@ namespace RimTalkCustomEvents.Effects
             RTCELog.Debug($"\"{eventLabel}\": {pawn.LabelShort} gained the thought {def.defName}");
         }
 
-        private static void ApplyNeed(EffectNeed spec, Pawn pawn, string eventLabel)
+        private static void ApplyNeed(EffectNeed spec, Pawn pawn, string eventLabel, float scale)
         {
             if (string.IsNullOrEmpty(spec.Def)) return;
 
@@ -181,7 +189,7 @@ namespace RimTalkCustomEvents.Effects
                 return;
             }
 
-            need.CurLevel = Mathf.Clamp(need.CurLevel + spec.Offset, 0f, need.MaxLevel);
+            need.CurLevel = Mathf.Clamp(need.CurLevel + spec.Offset * scale, 0f, need.MaxLevel);
             RTCELog.Debug($"\"{eventLabel}\": {pawn.LabelShort}'s {def.label} is now {need.CurLevel:0.##}");
         }
 
@@ -275,7 +283,7 @@ namespace RimTalkCustomEvents.Effects
             RTCELog.Debug($"\"{eventLabel}\": gave {pawn.LabelShort} the trait {def.defName}.");
         }
 
-        private static void ApplySkillXp(PhaseEffect effect, Pawn pawn, string eventLabel)
+        private static void ApplySkillXp(PhaseEffect effect, Pawn pawn, string eventLabel, float scale)
         {
             var def = DefDatabase<SkillDef>.GetNamedSilentFail(effect.SkillXpSkill);
             if (def == null)
@@ -293,8 +301,8 @@ namespace RimTalkCustomEvents.Effects
 
             // direct: true bypasses the daily learning-rate falloff, so a one-off event
             // grants what it says it grants.
-            record.Learn(effect.SkillXpAmount, true);
-            RTCELog.Debug($"\"{eventLabel}\": {pawn.LabelShort} gained {effect.SkillXpAmount} {def.defName} XP.");
+            record.Learn(effect.SkillXpAmount * scale, true);
+            RTCELog.Debug($"\"{eventLabel}\": {pawn.LabelShort} gained {effect.SkillXpAmount * scale:0} {def.defName} XP.");
         }
 
         private static void SpawnItems(List<EffectItem> items, Pawn pawn, string eventLabel)

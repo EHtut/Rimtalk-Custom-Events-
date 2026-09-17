@@ -86,7 +86,7 @@ namespace RimTalkCustomEvents.Scheduling
             ContinueBeatTicks.Clear();
 
             var count = def.Timing.ContinueCount;
-            if (count <= 0 || !def.HasContinueText) return;
+            if (count <= 0 || !def.ContinueUsesBeats) return;
 
             if (def.Timing.Spacing == ContinueSpacing.Random)
             {
@@ -241,7 +241,8 @@ namespace RimTalkCustomEvents.Scheduling
 
                     // Effects run on delivery, while Phase still points at the beat that
                     // just landed — AdvanceAfterBeat moves it on.
-                    EffectRunner.RunAll(CurrentPhaseSpec(def)?.Effects, Pawn, def.Label ?? def.DefName);
+                    EffectRunner.RunAll(CurrentPhaseSpec(def)?.Effects, Pawn, def.Label ?? def.DefName,
+                        CurrentIntensity(def));
 
                     AdvanceAfterBeat(def, now);
                     return;
@@ -330,6 +331,34 @@ namespace RimTalkCustomEvents.Scheduling
             Abort("cancelled");
         }
 
+        /// <summary>
+        /// Intensity of the beat about to fire. Only a Beat-mode CONTINUE ramps; everything
+        /// else sits at 1 so it behaves exactly as it did before intensity existed.
+        /// </summary>
+        private float CurrentIntensity(CustomEvent def)
+        {
+            return Phase == EventPhaseState.Continuing
+                ? def.Phases.Continue.IntensityAt(BeatIndex, ContinueBeatTicks.Count)
+                : 1f;
+        }
+
+        /// <summary>
+        /// The Modifier text this instance is contributing right now, or null. Only applies
+        /// once the event is past BEGINNING — the modifier is the *continuation*, so it
+        /// shouldn't colour dialogue before the event has actually started.
+        /// </summary>
+        public string ActiveModifierText()
+        {
+            if (IsFinished) return null;
+            if (Phase == EventPhaseState.Beginning) return null;
+
+            var def = Def;
+            if (def == null) return null;
+            if (def.Phases.Continue.Mode != ContinueMode.Modifier) return null;
+
+            return def.Phases.Continue.HasText ? def.Phases.Continue.Text : null;
+        }
+
         private PhaseSpec CurrentPhaseSpec(CustomEvent def)
         {
             switch (Phase)
@@ -372,7 +401,8 @@ namespace RimTalkCustomEvents.Scheduling
                 BeatIndex + 1,
                 ContinueBeatTicks.Count,
                 Pawn?.LabelShort,
-                text);
+                text,
+                CurrentIntensity(def));
         }
 
         /// <summary>Short line for the dev overlay.</summary>

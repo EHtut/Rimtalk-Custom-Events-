@@ -123,10 +123,109 @@ namespace RimTalkCustomEvents.UI
             Text.Font = GameFont.Small;
 
             DrawPhase(listing, "BEGINNING — fires once and starts the event", _event.Phases.Beginning);
-            DrawPhase(listing, "CONTINUE — replayed for each beat, escalating", _event.Phases.Continue);
+
+            DrawContinueMode(listing);
+            DrawPhase(listing, ContinueHeading(), _event.Phases.Continue);
+
             DrawPhase(listing, "END — the payoff", _event.Phases.End);
 
             listing.GapLine();
+        }
+
+        private string ContinueHeading()
+        {
+            switch (_event.Phases.Continue.Mode)
+            {
+                case ContinueMode.Modifier:
+                    return "CONTINUE — folded into everything they say";
+                case ContinueMode.Beat:
+                    return "CONTINUE — pulses that grow stronger";
+                default:
+                    return "CONTINUE — replayed as its own line each beat";
+            }
+        }
+
+        /// <summary>Mode dropdown, plus the intensity range when Beat mode needs it.</summary>
+        private void DrawContinueMode(Listing_Standard listing)
+        {
+            var continuePhase = _event.Phases.Continue;
+
+            listing.Gap(8f);
+
+            var row = listing.GetRect(30f);
+            Widgets.Label(new Rect(row.x, row.y + 4f, 110f, 24f), "CONTINUE is a:");
+
+            if (Widgets.ButtonText(new Rect(row.x + 114f, row.y, row.width - 114f, 28f),
+                    DescribeMode(continuePhase.Mode)))
+            {
+                var options = new List<FloatMenuOption>();
+                foreach (ContinueMode mode in Enum.GetValues(typeof(ContinueMode)))
+                {
+                    var captured = mode;
+                    options.Add(new FloatMenuOption(DescribeMode(captured), () =>
+                    {
+                        continuePhase.Mode = captured;
+
+                        // Beat mode is pointless without a range, so give it one the first
+                        // time it's selected rather than leaving it flat at 1.
+                        if (captured == ContinueMode.Beat && continuePhase.IntensityFrom >= 1f
+                                                          && continuePhase.IntensityTo >= 1f)
+                        {
+                            continuePhase.IntensityFrom = 0.2f;
+                            continuePhase.IntensityTo = 1f;
+                        }
+                    }));
+                }
+
+                Find.WindowStack.Add(new FloatMenu(options));
+            }
+
+            Text.Font = GameFont.Tiny;
+            var previous = GUI.color;
+            GUI.color = new Color(0.7f, 0.7f, 0.7f);
+            listing.Label(ModeHelp(continuePhase.Mode));
+            GUI.color = previous;
+            Text.Font = GameFont.Small;
+
+            if (continuePhase.Mode != ContinueMode.Beat) return;
+
+            listing.Label($"Starts at: {continuePhase.IntensityFrom:0.00}  ({PromptBuilder.DescribeIntensity(continuePhase.IntensityFrom)})");
+            continuePhase.IntensityFrom = listing.Slider(continuePhase.IntensityFrom, 0f, 1f);
+
+            listing.Label($"Builds to: {continuePhase.IntensityTo:0.00}  ({PromptBuilder.DescribeIntensity(continuePhase.IntensityTo)})");
+            continuePhase.IntensityTo = listing.Slider(continuePhase.IntensityTo, 0f, 1f);
+
+            Text.Font = GameFont.Tiny;
+            GUI.color = new Color(0.7f, 0.7f, 0.7f);
+            listing.Label("Use {intensity} in the text to let the wording follow it, and tick "
+                          + "\"scale with intensity\" on an effect to make its numbers follow too.");
+            GUI.color = previous;
+            Text.Font = GameFont.Small;
+        }
+
+        private static string DescribeMode(ContinueMode mode)
+        {
+            switch (mode)
+            {
+                case ContinueMode.Modifier: return "Modifier — colours all their dialogue";
+                case ContinueMode.Beat: return "Beat — pulses, growing stronger";
+                default: return "Prompt — a spoken line each beat";
+            }
+        }
+
+        private static string ModeHelp(ContinueMode mode)
+        {
+            switch (mode)
+            {
+                case ContinueMode.Modifier:
+                    return "No lines of its own. The text rides along with whatever the pawn was already "
+                           + "saying, so it colours their ordinary chatter. Example: \"Your skin is cold.\"";
+                case ContinueMode.Beat:
+                    return "Discrete pulses that climb in intensity. Example: \"Your skin grows colder\", "
+                           + "with the temperature penalty deepening each time.";
+                default:
+                    return "The pawn is prompted to speak about it, once per beat.";
+            }
         }
 
         private void DrawPhase(Listing_Standard listing, string heading, PhaseSpec phase)
@@ -147,6 +246,17 @@ namespace RimTalkCustomEvents.UI
                 if (Widgets.ButtonText(removeRect, "×"))
                 {
                     phase.Effects.Remove(effect);
+                }
+            }
+
+            if (phase.Mode == ContinueMode.Beat && phase.Effects.Count > 0)
+            {
+                foreach (var effect in phase.Effects)
+                {
+                    if (effect.HasOneOf) continue;
+                    var scale = effect.ScaleWithIntensity;
+                    listing.CheckboxLabeled($"   scale \"{DescribeEffect(effect)}\" with intensity", ref scale);
+                    effect.ScaleWithIntensity = scale;
                 }
             }
 

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using HarmonyLib;
@@ -81,24 +82,34 @@ namespace RimTalkCustomEvents
 
         // ---------------------------------------------------------------- events
 
+        private string _selectedDefName;
+
+        /// <summary>
+        /// The event the dropdown is pointing at. Falls back to the first one so the tab is
+        /// never showing actions for nothing.
+        /// </summary>
+        private CustomEvent Selected
+        {
+            get
+            {
+                var byName = EventStore.Get(_selectedDefName);
+                if (byName != null) return byName;
+                return EventStore.All.OrderBy(e => e.Label).FirstOrDefault();
+            }
+        }
+
         private void DrawEventsTab(Listing_Standard listing)
         {
-            listing.Label($"Events are JSON files in:\n{EventStore.EventsFolder}");
+            // --- utility row ---
+            var tools = listing.GetRect(30f);
+            var quarter = tools.width / 4f;
 
-            var buttons = listing.GetRect(30f);
-            var third = buttons.width / 3f;
-
-            if (Widgets.ButtonText(new Rect(buttons.x, buttons.y, third - 4f, buttons.height), "New event"))
+            if (Widgets.ButtonText(new Rect(tools.x, tools.y, quarter - 4f, tools.height), "New event"))
             {
                 Find.WindowStack.Add(new UI.EventEditorWindow(null));
             }
 
-            if (Widgets.ButtonText(new Rect(buttons.x + third * 2f, buttons.y, third, buttons.height), "Open folder"))
-            {
-                Application.OpenURL(EventStore.EventsFolder);
-            }
-
-            if (Widgets.ButtonText(new Rect(buttons.x + third, buttons.y, third - 4f, buttons.height), "Reload from disk"))
+            if (Widgets.ButtonText(new Rect(tools.x + quarter, tools.y, quarter - 4f, tools.height), "Reload"))
             {
                 EventStore.Reload();
                 Effects.HediffFactory.RegisterAll();
@@ -107,20 +118,17 @@ namespace RimTalkCustomEvents
                     false);
             }
 
-            var buttons2 = listing.GetRect(30f);
-            var half = buttons2.width / 2f;
-
-            if (Widgets.ButtonText(new Rect(buttons2.x, buttons2.y, half - 4f, buttons2.height), "Diagnostics"))
+            if (Widgets.ButtonText(new Rect(tools.x + quarter * 2f, tools.y, quarter - 4f, tools.height), "Diagnostics"))
             {
                 Find.WindowStack.Add(new UI.DiagnosticsWindow());
             }
 
-            if (Widgets.ButtonText(new Rect(buttons2.x + half, buttons2.y, half, buttons2.height), "Active events"))
+            if (Widgets.ButtonText(new Rect(tools.x + quarter * 3f, tools.y, quarter, tools.height), "Active events"))
             {
                 Find.WindowStack.Add(new UI.ActiveEventsWindow());
             }
 
-            listing.Gap(6f);
+            listing.Gap(8f);
 
             foreach (var problem in EventStore.LoadProblems)
             {
@@ -130,63 +138,87 @@ namespace RimTalkCustomEvents
                 GUI.color = previous;
             }
 
-            listing.GapLine();
-
             if (EventStore.Count == 0)
             {
-                listing.Label("No events loaded yet. Put a .json file in the folder above and hit Reload.");
+                listing.GapLine();
+                var previous = GUI.color;
+                GUI.color = Color.yellow;
+                listing.Label("No events are loaded.");
+                GUI.color = previous;
+                listing.Label("Events are JSON files in:" + System.Environment.NewLine + EventStore.EventsFolder);
+                listing.Label("Use New event above, or drop a .json file in that folder and hit Reload. "
+                              + "If you expected Frost to be here, open Diagnostics — it reports what went wrong.");
+
+                if (listing.ButtonText("Open folder", null, 0.4f)) Application.OpenURL(EventStore.EventsFolder);
                 return;
             }
 
-            foreach (var customEvent in EventStore.All.OrderBy(e => e.Label))
+            listing.GapLine();
+
+            // --- pick an event ---
+            var selected = Selected;
+            var pickRow = listing.GetRect(32f);
+            Widgets.Label(new Rect(pickRow.x, pickRow.y + 4f, 60f, 24f), "Event:");
+
+            if (Widgets.ButtonText(new Rect(pickRow.x + 64f, pickRow.y, pickRow.width - 64f, 30f),
+                    selected == null ? "(choose)" : DropdownLabel(selected)))
             {
-                DrawEventRow(listing, customEvent);
+                var options = new List<FloatMenuOption>();
+                foreach (var e in EventStore.All.OrderBy(x => x.Label))
+                {
+                    var captured = e;
+                    options.Add(new FloatMenuOption(DropdownLabel(captured),
+                        () => _selectedDefName = captured.DefName));
+                }
+
+                Find.WindowStack.Add(new FloatMenu(options));
             }
-        }
 
-        private void DrawEventRow(Listing_Standard listing, CustomEvent customEvent)
-        {
-            Text.Font = GameFont.Small;
+            if (selected == null) return;
 
-            var title = customEvent.Enabled
-                ? customEvent.Label
-                : $"{customEvent.Label}  (disabled)";
-
-            listing.Label(title);
+            listing.Gap(6f);
 
             Text.Font = GameFont.Tiny;
-            var previous = GUI.color;
+            var grey = GUI.color;
             GUI.color = new Color(0.75f, 0.75f, 0.75f);
-
-            listing.Label(Summarise(customEvent));
-
-            if (!string.IsNullOrEmpty(customEvent.Description))
-            {
-                listing.Label(customEvent.Description);
-            }
-
-            GUI.color = previous;
+            listing.Label(Summarise(selected));
+            if (!string.IsNullOrEmpty(selected.Description)) listing.Label(selected.Description);
+            GUI.color = grey;
             Text.Font = GameFont.Small;
 
-            var row = listing.GetRect(28f);
-            var third = row.width / 3f;
+            listing.Gap(6f);
 
-            if (Widgets.ButtonText(new Rect(row.x, row.y, third - 6f, 26f), "Edit"))
+            // --- actions for it ---
+            var actions = listing.GetRect(34f);
+            var third = actions.width / 3f;
+
+            if (Widgets.ButtonText(new Rect(actions.x, actions.y, third - 6f, 32f), "Edit"))
             {
-                Find.WindowStack.Add(new UI.EventEditorWindow(customEvent));
+                Find.WindowStack.Add(new UI.EventEditorWindow(selected));
             }
 
-            if (Widgets.ButtonText(new Rect(row.x + third, row.y, third - 6f, 26f), "Test fire"))
+            if (Widgets.ButtonText(new Rect(actions.x + third, actions.y, third - 6f, 32f), "Test fire"))
             {
-                TestFire(customEvent);
+                TestFire(selected);
             }
 
-            if (Widgets.ButtonText(new Rect(row.x + third * 2f, row.y, third - 6f, 26f), "Delete"))
+            if (Widgets.ButtonText(new Rect(actions.x + third * 2f, actions.y, third - 6f, 32f), "Delete"))
             {
-                ConfirmDelete(customEvent);
+                ConfirmDelete(selected);
             }
 
-            listing.GapLine();
+            listing.Gap(8f);
+            Text.Font = GameFont.Tiny;
+            GUI.color = new Color(0.6f, 0.6f, 0.6f);
+            listing.Label("Test fire needs a map open and a pawn matching this event's target filters. "
+                          + "Diagnostics lists how many qualify.");
+            GUI.color = grey;
+            Text.Font = GameFont.Small;
+        }
+
+        private static string DropdownLabel(CustomEvent e)
+        {
+            return e.Enabled ? e.Label : e.Label + "   (disabled)";
         }
 
         private static string Summarise(CustomEvent e)

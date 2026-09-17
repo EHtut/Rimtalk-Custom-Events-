@@ -87,6 +87,32 @@ namespace RimTalkCustomEvents.Scheduling
             }
 
             StartPendingChains();
+            SyncModifiers();
+        }
+
+        /// <summary>
+        /// Refreshes the Modifier-mode text applying to each pawn. Rebuilt from live
+        /// instances rather than registered and unregistered as events start and stop, so
+        /// there is no lifecycle to get wrong and it restores itself after a load.
+        /// </summary>
+        private void SyncModifiers()
+        {
+            var active = new List<KeyValuePair<Pawn, string>>();
+
+            foreach (var instance in _instances)
+            {
+                var text = instance.ActiveModifierText();
+                if (text != null && instance.Pawn != null)
+                {
+                    active.Add(new KeyValuePair<Pawn, string>(instance.Pawn, text));
+                }
+            }
+
+            // Skip the rebuild entirely in the common case of no modifiers anywhere.
+            if (active.Count == 0 && !ModifierRegistry.HasAny) return;
+
+            ModifierRegistry.EnsureHooked();
+            ModifierRegistry.Sync(active);
         }
 
         /// <summary>Queues a chained event. Started on a later tick — see _pendingChains.</summary>
@@ -261,6 +287,8 @@ namespace RimTalkCustomEvents.Scheduling
             {
                 instance.Cancel();
             }
+
+            ModifierRegistry.Clear();
         }
 
         public override void ExposeData()

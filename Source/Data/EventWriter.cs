@@ -153,7 +153,12 @@ namespace RimTalkCustomEvents.Data
             if (phase == null) return;
             if (!phase.HasText && phase.Effects.Count == 0) return;
 
-            if (phase.Effects.Count == 0)
+            // The bare-string form only works when there is nothing else to record.
+            var plain = phase.Effects.Count == 0
+                        && phase.Mode == ContinueMode.Prompt
+                        && !HasIntensityRange(phase);
+
+            if (plain)
             {
                 w.Write(key, phase.Text);
                 return;
@@ -161,10 +166,33 @@ namespace RimTalkCustomEvents.Data
 
             w.BeginObject(key);
             w.Write("text", phase.Text ?? "");
+
+            if (phase.Mode != ContinueMode.Prompt) w.Write("mode", phase.Mode.ToString().ToLowerInvariant());
+
+            if (HasIntensityRange(phase))
+            {
+                w.BeginObject("intensity");
+                w.Write("from", phase.IntensityFrom);
+                w.Write("to", phase.IntensityTo);
+                w.EndObject();
+            }
+
+            if (phase.Effects.Count == 0)
+            {
+                w.EndObject();
+                return;
+            }
+
             w.BeginArray("effects");
             foreach (var effect in phase.Effects) WriteEffect(w, effect);
             w.EndArray();
             w.EndObject();
+        }
+
+        /// <summary>True when the phase actually ramps, rather than sitting flat at 1.</summary>
+        private static bool HasIntensityRange(PhaseSpec phase)
+        {
+            return Differs(phase.IntensityFrom, 1f) || Differs(phase.IntensityTo, 1f);
         }
 
         private static void WriteEffect(JsonWriter w, PhaseEffect fx)
@@ -173,6 +201,7 @@ namespace RimTalkCustomEvents.Data
 
             if (Differs(fx.Weight, 1f)) w.Write("weight", fx.Weight);
             if (Differs(fx.Chance, 1f)) w.Write("chance", fx.Chance);
+            if (fx.ScaleWithIntensity) w.Write("scaleWithIntensity", true);
 
             if (fx.HasOneOf)
             {

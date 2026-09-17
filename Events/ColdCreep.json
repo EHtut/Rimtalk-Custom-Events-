@@ -1,0 +1,87 @@
+{
+  // A short Beat-mode event, deliberately fast so you can watch a whole cycle
+  // without waiting half a day of game time. Good first thing to test.
+  //
+  // Where FROST uses "prompt" mode (each CONTINUE is its own spoken line), this
+  // uses "beat": the same text pulses several times, growing stronger, and the
+  // effects grow with it.
+
+  "defName": "ColdCreep",
+  "label": "cold creep",
+  "description": "A chill that builds in pulses rather than in words. Short, for testing.",
+  "enabled": true,
+
+  "phases": {
+    "beginning": "A thin draught finds the back of their neck and stays there.",
+
+    "continue": {
+      "mode": "beat",
+      "text": "The cold presses in {intensity} — their fingers are going stiff.",
+
+      // Beat 1 sits at 0.15, the last at 1.0, the rest spread between.
+      // {intensity} above turns into a word: faintly, noticeably, strongly,
+      // overwhelmingly.
+      "intensity": { "from": 0.15, "to": 1.0 },
+
+      "effects": [
+        // scaleWithIntensity multiplies the numbers by the beat's intensity, so
+        // the first pulse is a scratch and the last one bites.
+        {
+          "scaleWithIntensity": true,
+          "hediff": { "def": "RTCE_ColdCreep", "severity": 0.25 }
+        },
+        {
+          "scaleWithIntensity": true,
+          "need": { "def": "Comfort", "offset": -0.15 }
+        }
+      ]
+    },
+
+    "end": {
+      "text": "All at once the cold lets go. They can breathe again, and their hands ache as the feeling returns.",
+      "effects": [
+        // Negative severity large enough to reach zero removes the hediff, which
+        // is how an event lifts something it applied earlier.
+        { "hediff": { "def": "RTCE_ColdCreep", "severity": -5 } }
+      ]
+    }
+  },
+
+  "timing": {
+    "durationHours": 2,
+    "continueCount": 4,
+    "minBeatGapHours": 0.2
+  },
+
+  // Manual so it only fires when you press Test fire — this one exists for testing.
+  "trigger": { "mode": "manual" },
+
+  "target": {
+    "pawnKinds": ["Colonist"],
+    "cooldownDays": 0,
+    "exclusionTags": ["supernatural-chill"]
+  },
+
+  "customHediffs": [
+    {
+      "defName": "RTCE_ColdCreep",
+      "label": "creeping cold",
+      "description": "A cold that came from nowhere and is in no hurry to leave.",
+      "isBad": true,
+      "maxSeverity": 1.0,
+      "severityPerDay": -0.5,
+      "stages": [
+        {
+          "minSeverity": 0.0,
+          "statOffsets": { "ComfyTemperatureMin": -4 }
+        },
+        {
+          "minSeverity": 0.5,
+          "label": "deep",
+          "statOffsets": { "ComfyTemperatureMin": -12 },
+          "capMods": { "Manipulation": -0.15 }
+        }
+      ]
+    }
+  ]
+}

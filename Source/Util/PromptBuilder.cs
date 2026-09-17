@@ -25,7 +25,8 @@ namespace RimTalkCustomEvents.Util
             int index,
             int total,
             string pawnName,
-            string text)
+            string text,
+            float intensity = 1f)
         {
             if (string.IsNullOrEmpty(wrapper)) wrapper = DefaultWrapper;
 
@@ -36,8 +37,21 @@ namespace RimTalkCustomEvents.Util
             sb.Replace("{index}", index.ToString());
             sb.Replace("{total}", total.ToString());
             sb.Replace("{pawn}", pawnName ?? "");
+            sb.Replace("{intensity}", DescribeIntensity(intensity));
             sb.Replace("{text}", text ?? "");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Intensity as a word rather than a number, because "0.62" means nothing to a
+        /// language model writing prose but "strongly" does.
+        /// </summary>
+        public static string DescribeIntensity(float intensity)
+        {
+            if (intensity <= 0.25f) return "faintly";
+            if (intensity <= 0.5f) return "noticeably";
+            if (intensity <= 0.75f) return "strongly";
+            return "overwhelmingly";
         }
 
         /// <summary>The "CONTINUE 2/3" style label shown in the prompt and the UI.</summary>

@@ -161,6 +161,25 @@ This mirrors the shipped `Events/Frost.json`, minus its comments.
 }
 ```
 
+### CONTINUE modes
+
+CONTINUE can carry the event forward three ways. BEGINNING and END are always spoken
+lines; only CONTINUE has a mode.
+
+| Mode | What it does |
+|---|---|
+| `prompt` (default) | A spoken line of its own, once per beat. |
+| `modifier` | No lines of its own — the text is folded into *every* prompt the pawn generates while the event runs, so it colours whatever they were already talking about. "Your skin is cold." |
+| `beat` | Discrete pulses whose **intensity** climbs from `intensity.from` to `intensity.to`. Effects marked `scaleWithIntensity` scale with it, so the mechanical bite grows alongside the wording. "Your skin grows colder", and the temperature offset deepens. |
+
+`{intensity}` in the text renders as a word — faintly / noticeably / strongly /
+overwhelmingly — because a number means nothing to a model writing prose.
+
+Modifier mode is delivered through `RimTalkPromptAPI.InjectPawnSection`, the ambient
+channel originally deferred from v1. The active set is rebuilt from live instances
+each tick rather than registered and unregistered as events start and stop: one hook,
+no lifecycle to get wrong, and it restores itself after a save is loaded.
+
 **Three texts, and the code handles the rest.** The author writes one BEGINNING, one
 CONTINUE and one END, exactly as in the original prompt. The scheduler decides how
 many CONTINUE beats there are and when each lands; CONTINUE is replayed for each
@@ -469,11 +488,11 @@ save/load mid-event.
 | I | Storyteller coupling removed outright (§5); git repo initialised | **done** |
 | — | **Run it in RimWorld** | the only thing left before v1 is real |
 | J | Prompt preview, active-events window, diagnostics report, .bak on comment-losing save | **done** |
+| K | CONTINUE modes (prompt / modifier / beat), intensity ramp, dropdown-driven Events tab | **done** |
 | — | Comment-preserving save, and `oneOf` editing in the UI | |
 | — | Translations | |
-| — | Ambient context via `RimTalkPromptAPI` | |
 
-70 checks now run outside the game, covering the parser, the weighted-table roll, every
+89 checks now run outside the game, covering the parser, the weighted-table roll, every
 authoring form, and a full write → reparse → compare round trip.
 
 ### Audit, this session

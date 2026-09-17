@@ -36,6 +36,31 @@ namespace RimTalkCustomEvents.Data
         Random
     }
 
+    /// <summary>How the CONTINUE phase carries the event forward.</summary>
+    public enum ContinueMode
+    {
+        /// <summary>
+        /// A discrete line the pawn is prompted to speak, once per beat. The original
+        /// behaviour and still the default.
+        /// </summary>
+        Prompt,
+
+        /// <summary>
+        /// No lines of its own. The text is folded into *every* prompt the pawn generates
+        /// while the event runs, so it colours whatever they happen to be talking about.
+        /// More dialogue flavour than mechanism — "your skin is cold".
+        /// </summary>
+        Modifier,
+
+        /// <summary>
+        /// Discrete pulses like Prompt, but with an intensity that climbs from
+        /// <c>intensityFrom</c> to <c>intensityTo</c> across the beats. Effects marked
+        /// <c>scaleWithIntensity</c> scale with it, so the mechanical bite grows alongside
+        /// the wording — "your skin grows colder", and the temperature offset deepens.
+        /// </summary>
+        Beat
+    }
+
     public enum HediffApplyMode
     {
         /// <summary>Add to any existing severity. This is what makes CONTINUE escalate.</summary>
@@ -81,6 +106,12 @@ namespace RimTalkCustomEvents.Data
         /// <summary>Explicit no-op arm, so a weighted table can genuinely fizzle.</summary>
         public bool Nothing;
 
+        /// <summary>
+        /// Multiply this effect's magnitude by the beat's intensity, so a Beat-mode CONTINUE
+        /// bites harder as it climbs. Applies to hediff severity, need offset and skill XP.
+        /// </summary>
+        public bool ScaleWithIntensity;
+
         public EffectHediff Hediff;
         public string Thought;
         public EffectNeed Need;
@@ -108,6 +139,7 @@ namespace RimTalkCustomEvents.Data
                 Chance = v.GetFloat("chance", 1f),
                 Weight = v.GetFloat("weight", 1f),
                 Nothing = v.GetBool("nothing"),
+                ScaleWithIntensity = v.GetBool("scaleWithIntensity"),
                 Thought = v.GetString("thought"),
                 Message = v.GetString("message")
             };
@@ -206,7 +238,31 @@ namespace RimTalkCustomEvents.Data
         public string Text = "";
         public List<PhaseEffect> Effects = new List<PhaseEffect>();
 
+        /// <summary>Only meaningful on CONTINUE; BEGINNING and END are always prompts.</summary>
+        public ContinueMode Mode = ContinueMode.Prompt;
+
+        /// <summary>
+        /// Intensity at the first and last beat, for Beat mode. Both default to 1 so an
+        /// event that doesn't use intensity behaves exactly as before.
+        /// </summary>
+        public float IntensityFrom = 1f;
+        public float IntensityTo = 1f;
+
         public bool HasText => !string.IsNullOrWhiteSpace(Text);
+
+        /// <summary>
+        /// Intensity for beat <paramref name="index"/> of <paramref name="total"/>, ramped
+        /// linearly. A single beat sits at the top of the range rather than the bottom —
+        /// one pulse of a climbing effect should be the full one.
+        /// </summary>
+        public float IntensityAt(int index, int total)
+        {
+            if (Mode != ContinueMode.Beat) return 1f;
+            if (total <= 1) return IntensityTo;
+
+            var t = Math.Max(0, Math.Min(index, total - 1)) / (float)(total - 1);
+            return IntensityFrom + (IntensityTo - IntensityFrom) * t;
+        }
 
         public static PhaseSpec FromJson(JsonValue v)
         {
@@ -237,6 +293,21 @@ namespace RimTalkCustomEvents.Data
             if (v.Type != JsonType.Object) return spec;
 
             spec.Text = v.GetString("text", "");
+            spec.Mode = PhaseEffect.ParseEnum(v.GetString("mode"), ContinueMode.Prompt);
+
+            var intensity = v.Get("intensity");
+            if (intensity != null && !intensity.IsNull)
+            {
+                spec.IntensityFrom = intensity.GetFloat("from", 0.2f);
+                spec.IntensityTo = intensity.GetFloat("to", 1f);
+            }
+            else if (spec.Mode == ContinueMode.Beat)
+            {
+                // Beat mode without an explicit range still ramps — that's the point of it.
+                spec.IntensityFrom = 0.2f;
+                spec.IntensityTo = 1f;
+            }
+
             foreach (var effect in v.GetArray("effects"))
             {
                 spec.Effects.Add(PhaseEffect.FromJson(effect));
@@ -371,6 +442,13 @@ namespace RimTalkCustomEvents.Data
         public string SourcePath;
 
         public bool HasContinueText => Phases.Continue.HasText;
+
+        /// <summary>
+        /// Modifier-mode CONTINUE has no beats of its own — its text rides along with the
+        /// pawn's other dialogue instead, so the scheduler must not queue lines for it.
+        /// </summary>
+        public bool ContinueUsesBeats =>
+            Phases.Continue.Mode != ContinueMode.Modifier && HasContinueText;
 
         public static CustomEvent FromJson(JsonValue root, string sourcePath)
         {
