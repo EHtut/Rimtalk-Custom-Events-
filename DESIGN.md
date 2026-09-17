@@ -8,10 +8,9 @@ incident behind at any phase.
 > This is the single source of truth for the design. Update it in the same session
 > that changes the design; delete sections that stop describing anything real.
 
-**Status:** v1 is feature-complete and compiles — events, per-phase effects, runtime
-hediffs, self-paced triggers, targeting, the JSON writer, three CONTINUE modes, and the
-Mod Options browser, editor and diagnostics. 110 checks pass outside the game.
-**Nothing has been run inside RimWorld yet**; that is the one remaining gate.
+**Status:** running in-game and confirmed working. See **§12** for what is built, what
+the known gaps are, and what is decided but not yet implemented — that section is the
+one to read first when picking this up again.
 
 ---
 
