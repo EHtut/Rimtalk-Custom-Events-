@@ -87,14 +87,6 @@ namespace RimTalkCustomEvents.Integration
 
         public static bool HasAny => Active.Count > 0;
 
-        /// <summary>Modifier text currently applying to a pawn, for the UI.</summary>
-        public static IReadOnlyList<string> For(Pawn pawn)
-        {
-            return pawn != null && Active.TryGetValue(pawn, out var list)
-                ? (IReadOnlyList<string>)list
-                : new List<string>();
-        }
-
         /// <summary>
         /// Called by RimTalk while it assembles a pawn's context. Returns null when there's
         /// nothing to add, so no empty section is emitted.

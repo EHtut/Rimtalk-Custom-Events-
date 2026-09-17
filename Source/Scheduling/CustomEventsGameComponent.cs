@@ -104,24 +104,29 @@ namespace RimTalkCustomEvents.Scheduling
         /// instances rather than registered and unregistered as events start and stop, so
         /// there is no lifecycle to get wrong and it restores itself after a load.
         /// </summary>
+        private static readonly List<KeyValuePair<Pawn, string>> NoModifiers =
+            new List<KeyValuePair<Pawn, string>>();
+
         private void SyncModifiers()
         {
-            var active = new List<KeyValuePair<Pawn, string>>();
+            // Stays null until something is actually found, so an event with no modifier
+            // costs no allocation on the tick thread — this runs once a second per event.
+            List<KeyValuePair<Pawn, string>> active = null;
 
             foreach (var instance in _instances)
             {
                 var text = instance.ActiveModifierText();
-                if (text != null && instance.Pawn != null)
-                {
-                    active.Add(new KeyValuePair<Pawn, string>(instance.Pawn, text));
-                }
+                if (text == null || instance.Pawn == null) continue;
+
+                if (active == null) active = new List<KeyValuePair<Pawn, string>>();
+                active.Add(new KeyValuePair<Pawn, string>(instance.Pawn, text));
             }
 
-            // Skip the rebuild entirely in the common case of no modifiers anywhere.
-            if (active.Count == 0 && !ModifierRegistry.HasAny) return;
+            // Nothing to apply and nothing left over: no work to do at all.
+            if (active == null && !ModifierRegistry.HasAny) return;
 
             ModifierRegistry.EnsureHooked();
-            ModifierRegistry.Sync(active);
+            ModifierRegistry.Sync(active ?? NoModifiers);
         }
 
         /// <summary>Queues a chained event. Started on a later tick — see _pendingChains.</summary>
@@ -280,14 +285,6 @@ namespace RimTalkCustomEvents.Scheduling
         private static string CooldownKey(Pawn pawn, CustomEvent def)
         {
             return pawn.ThingID + "|" + def.DefName;
-        }
-
-        public void CancelAllFor(Pawn pawn)
-        {
-            foreach (var instance in _instances.Where(i => i.Pawn == pawn && !i.IsFinished))
-            {
-                instance.Cancel();
-            }
         }
 
         public void CancelAll()

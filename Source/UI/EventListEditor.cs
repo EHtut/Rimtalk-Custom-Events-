@@ -32,8 +32,42 @@ namespace RimTalkCustomEvents.UI
         /// <summary>Per-field text buffers so a half-typed number doesn't snap.</summary>
         private static readonly Dictionary<string, string> Buffers = new Dictionary<string, string>();
 
+        // RimWorld draws UI on the same thread it ticks, so per-row work here competes with
+        // the simulation. These are rebuilt once per Draw instead of once per row.
+        private static readonly List<CustomEvent> SortedEvents = new List<CustomEvent>();
+        private static readonly Dictionary<string, int> RunningCounts = new Dictionary<string, int>();
+        private static int _cacheStamp = -1;
+
+        /// <summary>
+        /// Rebuilds the per-draw caches. Sorting and counting once beats doing either per
+        /// row; with a long event list the difference lands squarely on the tick thread.
+        /// </summary>
+        private static void RefreshCaches()
+        {
+            // One stamp per frame: Draw runs once per frame, so this just avoids repeating
+            // the work if it's ever called twice.
+            if (_cacheStamp == Time.frameCount) return;
+            _cacheStamp = Time.frameCount;
+
+            SortedEvents.Clear();
+            SortedEvents.AddRange(EventStore.All);
+            SortedEvents.Sort((a, b) => string.Compare(a.Label, b.Label, StringComparison.OrdinalIgnoreCase));
+
+            RunningCounts.Clear();
+            var component = CustomEventsGameComponent.Current;
+            if (component == null) return;
+
+            foreach (var instance in component.ActiveInstances)
+            {
+                if (string.IsNullOrEmpty(instance.EventDefName)) continue;
+                RunningCounts.TryGetValue(instance.EventDefName, out var count);
+                RunningCounts[instance.EventDefName] = count + 1;
+            }
+        }
+
         public static void Draw(Listing_Standard listing)
         {
+            RefreshCaches();
             DrawToolbar(listing);
             DrawProblems(listing);
 
@@ -46,7 +80,7 @@ namespace RimTalkCustomEvents.UI
             listing.Gap(4f);
             DrawHeaderRow(listing);
 
-            foreach (var e in EventStore.All.OrderBy(x => x.Label))
+            foreach (var e in SortedEvents)
             {
                 DrawEventRow(listing, e);
             }
@@ -209,8 +243,10 @@ namespace RimTalkCustomEvents.UI
             if (e.Phases.Continue.HasModifier) parts.Add("modifier");
             if (parts.Count > 0) bits.Add(string.Join(" + ", parts.ToArray()));
 
-            var running = CustomEventsGameComponent.Current?.ActiveInstances.Count(i => i.EventDefName == e.DefName) ?? 0;
-            if (running > 0) bits.Add($"RUNNING ×{running}");
+            if (RunningCounts.TryGetValue(e.DefName, out var running) && running > 0)
+            {
+                bits.Add($"RUNNING ×{running}");
+            }
 
             return string.Join("   ·   ", bits.ToArray());
         }

@@ -428,6 +428,53 @@ start/stop. No rework of anything else.
 
 ---
 
+## 8b. Performance budget
+
+RimWorld ticks on a single thread, and UI draws on that same thread. Anything this mod
+does per tick or per frame competes directly with the simulation, so it is held to a
+budget. **Treat this section as a contract for future changes.**
+
+### What runs per tick
+
+`GameComponentTick` fires every tick. When nothing is running it does exactly this:
+
+1. one static property read + null check (settings)
+2. `Find.TickManager.TicksGame`
+3. `ticks % 2500` — the hourly trigger check
+4. two `Count` comparisons, then return
+
+No allocation, no LINQ, no enumeration, no def lookups. That is the idle cost and it
+should stay that way.
+
+### What runs on a cadence
+
+| Work | Cadence | Cost |
+|---|---|---|
+| Trigger rolls over all enabled events | once per in-game **hour** (2500 ticks) | one pass over the event list; pawn selection only runs when a roll actually succeeds |
+| Instance state machines | once per **second** (60 ticks) | per running instance: one dict lookup, one RimTalk cache lookup |
+| Modifier sync | once per second | allocation-free unless a modifier is actually active |
+| Beat delivery + effects | once per **beat** — a handful of times per event | def lookups and string building happen here, which is why it's fine that they do |
+
+The pull-based scheduler means a blocked beat costs a readiness check per second, not a
+retry storm.
+
+### Rules for future work
+
+- **Nothing new in the per-tick path** without a cadence gate. If it must run every tick,
+  it must be a comparison, not a lookup.
+- **No LINQ, `ToList`, or string interpolation** in per-tick or per-second paths. String
+  interpolation is evaluated *before* the call, so `RTCELog.Debug($"…")` costs the string
+  even when debug logging is off — acceptable per beat, not per second.
+- **UI is not free.** It draws on the tick thread. Per-row work in a list must be hoisted
+  to per-frame: sort once, count once, resolve `GetComponent` once.
+- **`CustomEventsGameComponent.Current` is a component-list scan.** Never call it in a
+  loop.
+- Def lookups (`DefDatabase<T>.GetNamedSilentFail`) are dictionary hits, so they are cheap
+  — but enumerating `AllDefs` is not, and with a heavy load order it is *very* not. That
+  belongs behind user interaction only (the def picker), never on a cadence.
+
+---
+
 ## 9. Persistence
 
 A `GameComponent` (`CustomEventsGameComponent`) holds active instances and
