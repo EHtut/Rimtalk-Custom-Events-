@@ -33,22 +33,23 @@ namespace RimTalkCustomEvents.UI
         private static readonly Dictionary<string, string> Buffers = new Dictionary<string, string>();
 
         // RimWorld draws UI on the same thread it ticks, so per-row work here competes with
-        // the simulation. These are rebuilt once per Draw instead of once per row.
+        // the simulation. These are reused rather than reallocated, and filled once per
+        // Draw instead of once per row.
         private static readonly List<CustomEvent> SortedEvents = new List<CustomEvent>();
         private static readonly Dictionary<string, int> RunningCounts = new Dictionary<string, int>();
-        private static int _cacheStamp = -1;
 
         /// <summary>
-        /// Rebuilds the per-draw caches. Sorting and counting once beats doing either per
-        /// row; with a long event list the difference lands squarely on the tick thread.
+        /// Rebuilds the per-draw lists. Sorting and counting once beats doing either per row.
+        ///
+        /// This deliberately runs on *every* Draw. An earlier version skipped the rebuild if
+        /// it had already run during the same Unity frame, which was wrong: OnGUI runs
+        /// several passes per frame (layout, repaint, one per input event), and a click
+        /// changes state between them. Any later pass then drew from a stale snapshot — the
+        /// list could render empty with no exception at all. The work saved was sorting a
+        /// handful of items; the cost was an invisible, unreproducible bug.
         /// </summary>
         private static void RefreshCaches()
         {
-            // One stamp per frame: Draw runs once per frame, so this just avoids repeating
-            // the work if it's ever called twice.
-            if (_cacheStamp == Time.frameCount) return;
-            _cacheStamp = Time.frameCount;
-
             SortedEvents.Clear();
             SortedEvents.AddRange(EventStore.All);
             SortedEvents.Sort((a, b) => string.Compare(a.Label, b.Label, StringComparison.OrdinalIgnoreCase));
@@ -74,6 +75,7 @@ namespace RimTalkCustomEvents.UI
             DrawToolbar(listing);
             DrawProblems(listing);
             DrawLastError(listing);
+            DrawStateNotice(listing);
 
             if (EventStore.Count == 0 && _draft == null)
             {
@@ -127,6 +129,40 @@ namespace RimTalkCustomEvents.UI
                 listing.Label("   " + _lastError);
                 GUI.color = previous;
             }
+        }
+
+        /// <summary>
+        /// Says something when the drawn list and the loaded store disagree — the exact
+        /// failure that produced an empty list with no error. Silent when all is well.
+        /// </summary>
+        private static void DrawStateNotice(Listing_Standard listing)
+        {
+            var settings = RimTalkCustomEventsMod.Settings;
+            var mismatch = SortedEvents.Count != EventStore.Count;
+
+            if (!mismatch && (settings == null || !settings.debugLogging)) return;
+
+            var previous = GUI.color;
+            Text.Font = GameFont.Tiny;
+
+            if (mismatch)
+            {
+                GUI.color = Color.yellow;
+                listing.Label($"Showing {SortedEvents.Count} of {EventStore.Count} loaded event(s) — "
+                              + "that is a bug, please report it.");
+            }
+
+            if (settings != null && settings.debugLogging)
+            {
+                GUI.color = new Color(0.7f, 0.7f, 0.7f);
+                listing.Label($"store {EventStore.Count} · listed {SortedEvents.Count}"
+                              + $" · expanded {_expandedDefName ?? "none"}"
+                              + $" · draft {_draft?.DefName ?? "none"}"
+                              + $" · colWidth {listing.ColumnWidth:0} · height {listing.CurHeight:0}");
+            }
+
+            GUI.color = previous;
+            Text.Font = GameFont.Small;
         }
 
         private static void DrawLastError(Listing_Standard listing)
