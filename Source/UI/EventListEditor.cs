@@ -65,11 +65,15 @@ namespace RimTalkCustomEvents.UI
             }
         }
 
+        /// <summary>Last draw failure, kept so it can be shown rather than only logged.</summary>
+        private static string _lastError;
+
         public static void Draw(Listing_Standard listing)
         {
             RefreshCaches();
             DrawToolbar(listing);
             DrawProblems(listing);
+            DrawLastError(listing);
 
             if (EventStore.Count == 0 && _draft == null)
             {
@@ -82,14 +86,66 @@ namespace RimTalkCustomEvents.UI
 
             foreach (var e in SortedEvents)
             {
-                DrawEventRow(listing, e);
+                // Guarded per row. RimWorld abandons the rest of a window when an exception
+                // escapes OnGUI, so without this one bad event blanks the entire page and
+                // gives no clue which one caused it.
+                Guarded(listing, "row \"" + (e.Label ?? e.DefName) + "\"", () => DrawEventRow(listing, e));
             }
 
             // A brand new event has no store entry yet, so it gets its own row at the end.
             if (_draft != null && EventStore.Get(_draft.DefName) == null)
             {
-                DrawNewDraftRow(listing);
+                Guarded(listing, "the new event", () => DrawNewDraftRow(listing));
             }
+        }
+
+        /// <summary>
+        /// Runs a piece of drawing, turning any exception into a visible message instead of
+        /// letting it take the window down with it.
+        /// </summary>
+        private static void Guarded(Listing_Standard listing, string what, Action body)
+        {
+            try
+            {
+                body();
+            }
+            catch (Exception ex)
+            {
+                // Collapse whatever was being edited: leaving it expanded would just throw
+                // again on the next frame and make the page unusable.
+                var wasExpanded = _expandedDefName;
+                Collapse();
+
+                _lastError = $"Drawing {what} failed: {ex.GetType().Name}: {ex.Message}";
+
+                RTCELog.Error(
+                    $"UI draw failed for {what} (expanded: {wasExpanded ?? "none"}).{Environment.NewLine}"
+                    + ex);
+
+                var previous = GUI.color;
+                GUI.color = Color.red;
+                listing.Label("   " + _lastError);
+                GUI.color = previous;
+            }
+        }
+
+        private static void DrawLastError(Listing_Standard listing)
+        {
+            if (_lastError == null) return;
+
+            var previous = GUI.color;
+            GUI.color = Color.red;
+            listing.Label(_lastError);
+            GUI.color = previous;
+
+            Text.Font = GameFont.Tiny;
+            GUI.color = new Color(0.75f, 0.75f, 0.75f);
+            listing.Label("   The full stack trace is in the dev console. "
+                          + "Send it over and this can be fixed properly.");
+            GUI.color = previous;
+            Text.Font = GameFont.Small;
+
+            if (listing.ButtonText("Dismiss this error", null, 0.35f)) _lastError = null;
         }
 
         // ------------------------------------------------------------- toolbar
