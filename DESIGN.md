@@ -529,7 +529,7 @@ Last reviewed 2026-09-17. **Running in-game and confirmed working.**
 | **Def finder** | Runtime enumeration of everything the load order provides, filterable by source mod; reference validation on load names anything missing. |
 | **Scheduler** | Pull-based beat delivery gated on the pawn actually being able to speak, phase state machine, blocked-beat policy, save/load, chain queueing. |
 | **Triggers** | daily, occasionally, manual. Self-paced — no storyteller coupling by design (§5). |
-| **Targeting** | Category eligibility, pawnKinds, gender, age, required/excluded traits and hediffs, trait weighting, per-pawn cooldown, exclusion tags. *(Runtime only — see gaps.)* |
+| **Targeting** | Category eligibility, pawnKinds, gender, age, required/excluded traits and hediffs, trait weighting, per-pawn cooldown, exclusion tags — all editable in the UI. |
 | **UI** | Events tab as a task-manager list with inline editing, Settings tab, def pickers, prompt preview, Active events window, Diagnostics report, dev gizmo. |
 | **Verification** | 110 checks outside the game: parser, weighted rolls, every authoring form, writer round trips, clone independence, rename handling. |
 
@@ -537,20 +537,30 @@ Last reviewed 2026-09-17. **Running in-game and confirmed working.**
 
 | Gap | Note |
 |---|---|
-| **Target filters aren't editable in the UI** | Regression from moving the editor inline. They parse and work at runtime; only the editor lost them. |
 | **`oneOf` tables aren't editable in the UI** | Shown as a read-only summary; edit in the file. |
 | **No Import / Export** | No way to share a single event from inside the game. |
 | **`relationship` effect** | Designed but never built. |
 | **Multi-pawn events** | Deliberately out of scope; every event targets one pawn. The schema leaves room for a `roles` block. |
 | **No translations** | All UI strings are hardcoded English. |
 
-### Decided, pending implementation
+### Storage: settled
 
-- **Storage moves to RimWorld's mod settings XML** (decided 2026-09-17), replacing one
-  JSON file per event. Consequences accepted: a settings reset wipes every event, one
-  parse failure takes all of them rather than one, and events can no longer carry
-  comments — which retires the comment-preserving-save item entirely. Import/Export
-  becomes the only sharing route, so it stops being optional.
+Events stay as **one JSON file per event** in `Config/RimTalkCustomEvents/Events/`.
+
+Moving them into RimWorld's mod-settings XML was considered and rejected on
+2026-09-17, after checking what RimTalk itself does. RimTalk has the same problem — a
+built-in editor for large authored text — and stores its prompt presets as
+`Config/RimTalk/Presets/<Name>.json`, one file each, with its *settings* separately in
+`Config/Mod_..._RimTalkMod.xml`. That is exactly the split used here, so this matches
+the convention of the mod we are a companion to.
+
+Keeping files also preserves what the XML route would have cost: comments in event
+files, one broken event not taking the rest down with it, and sharing a single event as
+a single file.
+
+One difference in our favour: RimTalk's presets are minified onto one line with escaped
+newlines, so they are unreadable outside its own editor. Ours are pretty-printed and
+take comments.
 
 ---
 

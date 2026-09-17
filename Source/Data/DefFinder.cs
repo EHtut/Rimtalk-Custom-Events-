@@ -18,7 +18,8 @@ namespace RimTalkCustomEvents.Data
         Skill,
         BodyPart,
         Stat,
-        PawnCapacity
+        PawnCapacity,
+        PawnKind
     }
 
     /// <summary>One selectable def, with the mod it came from.</summary>
@@ -72,6 +73,7 @@ namespace RimTalkCustomEvents.Data
                 case DefKind.BodyPart: return Wrap(DefDatabase<BodyPartDef>.AllDefs);
                 case DefKind.Stat: return Wrap(DefDatabase<StatDef>.AllDefs);
                 case DefKind.PawnCapacity: return Wrap(DefDatabase<PawnCapacityDef>.AllDefs);
+                case DefKind.PawnKind: return Wrap(DefDatabase<PawnKindDef>.AllDefs);
 
                 default: return Enumerable.Empty<DefEntry>();
             }
@@ -151,6 +153,7 @@ namespace RimTalkCustomEvents.Data
                 case DefKind.BodyPart: return DefDatabase<BodyPartDef>.GetNamedSilentFail(defName) != null;
                 case DefKind.Stat: return DefDatabase<StatDef>.GetNamedSilentFail(defName) != null;
                 case DefKind.PawnCapacity: return DefDatabase<PawnCapacityDef>.GetNamedSilentFail(defName) != null;
+                case DefKind.PawnKind: return DefDatabase<PawnKindDef>.GetNamedSilentFail(defName) != null;
                 default: return false;
             }
         }

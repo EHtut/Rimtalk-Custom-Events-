@@ -355,6 +355,9 @@ namespace RimTalkCustomEvents.UI
                 DrawTrigger(listing, e);
 
                 listing.GapLine();
+                DrawTarget(listing, e);
+
+                listing.GapLine();
                 DrawActions(listing, original);
             });
 
@@ -557,8 +560,169 @@ namespace RimTalkCustomEvents.UI
             {
                 e.Trigger.MinRefireDays = Number(listing, "Min days before repeating", "refire", e.Trigger.MinRefireDays, 0f, 360f);
             }
+        }
 
-            e.Target.CooldownDays = Number(listing, "Cooldown per pawn (days)", "cooldown", e.Target.CooldownDays, 0f, 360f);
+        /// <summary>
+        /// Who the event can happen to. These all work at runtime; they were only ever
+        /// missing from the UI, which meant editing the file was the sole way to reach them.
+        /// </summary>
+        private static void DrawTarget(Listing_Standard listing, CustomEvent e)
+        {
+            Heading(listing, "Who it happens to");
+
+            var t = e.Target;
+
+            t.CooldownDays = Number(listing, "Cooldown per pawn (days)", "cooldown", t.CooldownDays, 0f, 360f);
+
+            // Gender cycles rather than opening a menu — three states isn't worth a popup.
+            var genderLabel = string.IsNullOrEmpty(t.Gender) ? "anyone" : t.Gender;
+            if (listing.ButtonText($"Gender: {genderLabel}", null, 0.45f))
+            {
+                t.Gender = string.IsNullOrEmpty(t.Gender) ? "male"
+                    : t.Gender == "male" ? "female"
+                    : null;
+            }
+
+            // -1 means "no limit", so the fields show blank rather than a misleading number.
+            t.MinAge = OptionalNumber(listing, "Minimum age", "minAge", t.MinAge, 0f, 200f);
+            t.MaxAge = OptionalNumber(listing, "Maximum age", "maxAge", t.MaxAge, 0f, 200f);
+
+            DrawDefList(listing, "Pawn kinds", t.PawnKinds, DefKind.PawnKind, "pawn kind",
+                "Broad keywords (Colonist, Prisoner, Slave, Guest, Animal) also work. Empty means anyone eligible.");
+
+            DrawDefList(listing, "Must have trait", t.RequiredTraits, DefKind.Trait, "required trait", null);
+            DrawDefList(listing, "Must NOT have trait", t.ExcludedTraits, DefKind.Trait, "excluded trait", null);
+            DrawDefList(listing, "Must have hediff", t.RequiredHediffs, DefKind.Hediff, "required hediff", null);
+            DrawDefList(listing, "Blocked by hediff", t.ExcludedHediffs, DefKind.Hediff, "blocking hediff", null);
+
+            DrawTraitWeights(listing, t);
+            DrawTagList(listing, e, t);
+        }
+
+        /// <summary>
+        /// Weighted trait preferences. A weight above 1 makes matching pawns likelier to be
+        /// picked; 0 excludes them outright.
+        /// </summary>
+        private static void DrawTraitWeights(Listing_Standard listing, EventTarget t)
+        {
+            listing.Label($"Prefer pawns with traits: {(t.WeightByTrait.Count == 0 ? "(no preference)" : "")}");
+
+            string toRemove = null;
+            foreach (var pair in t.WeightByTrait)
+            {
+                var row = listing.GetRect(26f);
+                Text.Font = GameFont.Tiny;
+                Widgets.Label(new Rect(row.x + 16f, row.y + 3f, row.width * 0.5f, row.height), "• " + pair.Key);
+                Text.Font = GameFont.Small;
+
+                var weight = Number(listing, "", "w_" + pair.Key, pair.Value, 0f, 100f, row, 0.55f);
+                if (Math.Abs(weight - pair.Value) > 0.0001f) PendingWeights[pair.Key] = weight;
+
+                if (Widgets.ButtonText(new Rect(row.xMax - 28f, row.y, 24f, 22f), "×")) toRemove = pair.Key;
+            }
+
+            // Applied after the loop: mutating a dictionary while enumerating it throws.
+            foreach (var pending in PendingWeights)
+            {
+                if (t.WeightByTrait.ContainsKey(pending.Key)) t.WeightByTrait[pending.Key] = pending.Value;
+            }
+
+            PendingWeights.Clear();
+
+            if (toRemove != null) t.WeightByTrait.Remove(toRemove);
+
+            if (listing.ButtonText("Add trait preference…", null, 0.4f))
+            {
+                Find.WindowStack.Add(new DefPickerWindow(DefKind.Trait, "Choose a trait to prefer",
+                    entry =>
+                    {
+                        if (!t.WeightByTrait.ContainsKey(entry.DefName)) t.WeightByTrait[entry.DefName] = 2f;
+                    }));
+            }
+        }
+
+        private static readonly Dictionary<string, float> PendingWeights = new Dictionary<string, float>();
+
+        /// <summary>
+        /// Exclusion tags are free text, not defs — two events sharing a tag can't run on
+        /// the same pawn at once. Offers tags already in use rather than a typing field.
+        /// </summary>
+        private static void DrawTagList(Listing_Standard listing, CustomEvent e, EventTarget t)
+        {
+            listing.Label($"Conflicts with (tags): {(t.ExclusionTags.Count == 0 ? "(none)" : string.Join(", ", t.ExclusionTags.ToArray()))}");
+
+            var row = listing.GetRect(26f);
+            var half = row.width * 0.25f;
+
+            if (Widgets.ButtonText(new Rect(row.x, row.y, half, 24f), "Add tag"))
+            {
+                var options = new List<FloatMenuOption>();
+
+                // Tags only matter when shared, so offer the ones other events already use.
+                foreach (var tag in EventStore.All
+                             .Where(other => other.DefName != e.DefName)
+                             .SelectMany(other => other.Target.ExclusionTags)
+                             .Distinct()
+                             .OrderBy(x => x))
+                {
+                    var captured = tag;
+                    options.Add(new FloatMenuOption(captured, () =>
+                    {
+                        if (!t.ExclusionTags.Contains(captured)) t.ExclusionTags.Add(captured);
+                    }));
+                }
+
+                // A tag named after the event is the common case: "nothing else like this".
+                var own = e.DefName;
+                if (!string.IsNullOrEmpty(own) && !t.ExclusionTags.Contains(own))
+                {
+                    options.Add(new FloatMenuOption($"New tag: \"{own}\"", () => t.ExclusionTags.Add(own)));
+                }
+
+                if (options.Count == 0)
+                {
+                    options.Add(new FloatMenuOption("(no tags in use yet — name an event first)", null));
+                }
+
+                Find.WindowStack.Add(new FloatMenu(options));
+            }
+
+            if (t.ExclusionTags.Count > 0 && Widgets.ButtonText(new Rect(row.x + half + 6f, row.y, half, 24f), "Clear"))
+            {
+                t.ExclusionTags.Clear();
+            }
+        }
+
+        private static void DrawDefList(Listing_Standard listing, string label, List<string> values,
+            DefKind kind, string what, string hint)
+        {
+            listing.Label($"{label}: {(values.Count == 0 ? "(any)" : string.Join(", ", values.ToArray()))}");
+
+            if (hint != null)
+            {
+                Text.Font = GameFont.Tiny;
+                var previous = GUI.color;
+                GUI.color = new Color(0.65f, 0.65f, 0.65f);
+                listing.Label("   " + hint);
+                GUI.color = previous;
+                Text.Font = GameFont.Small;
+            }
+
+            var row = listing.GetRect(26f);
+            var half = row.width * 0.25f;
+
+            if (Widgets.ButtonText(new Rect(row.x, row.y, half, 24f), "Add"))
+            {
+                Find.WindowStack.Add(new DefPickerWindow(kind, $"Choose a {what}", entry =>
+                {
+                    if (!values.Contains(entry.DefName)) values.Add(entry.DefName);
+                }));
+            }
+
+            if (values.Count > 0 && Widgets.ButtonText(new Rect(row.x + half + 6f, row.y, half, 24f), "Clear"))
+            {
+                values.Clear();
+            }
         }
 
         private static string DescribeTrigger(TriggerMode mode)
@@ -723,17 +887,47 @@ namespace RimTalkCustomEvents.UI
             }
         }
 
-        private static float Number(Listing_Standard listing, string label, string key, float value, float min, float max)
+        /// <summary>
+        /// A number field that treats a negative stored value as "unset", showing an empty
+        /// box. Used for the age bounds, where -1 means no limit.
+        /// </summary>
+        private static float OptionalNumber(Listing_Standard listing, string label, string key,
+            float value, float min, float max)
         {
             var row = listing.GetRect(26f);
             Widgets.Label(new Rect(row.x, row.y, row.width * 0.62f, row.height), label);
 
             if (!Buffers.TryGetValue(key, out var buffer))
             {
-                buffer = value.ToString("0.###", CultureInfo.InvariantCulture);
+                buffer = value < 0f ? "" : value.ToString("0.###", CultureInfo.InvariantCulture);
             }
 
             var typed = Widgets.TextField(new Rect(row.x + row.width * 0.64f, row.y, row.width * 0.34f, 24f), buffer);
+            Buffers[key] = typed;
+
+            if (string.IsNullOrWhiteSpace(typed)) return -1f;
+
+            return float.TryParse(typed, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+                ? Mathf.Clamp(parsed, min, max)
+                : value;
+        }
+
+        private static float Number(Listing_Standard listing, string label, string key, float value,
+            float min, float max, Rect? existingRow = null, float fieldStart = 0.64f)
+        {
+            var row = existingRow ?? listing.GetRect(26f);
+            if (!string.IsNullOrEmpty(label))
+            {
+                Widgets.Label(new Rect(row.x, row.y, row.width * 0.62f, row.height), label);
+            }
+
+            if (!Buffers.TryGetValue(key, out var buffer))
+            {
+                buffer = value.ToString("0.###", CultureInfo.InvariantCulture);
+            }
+
+            var typed = Widgets.TextField(
+                new Rect(row.x + row.width * fieldStart, row.y, row.width * 0.3f, 24f), buffer);
             Buffers[key] = typed;
 
             if (float.TryParse(typed, NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
