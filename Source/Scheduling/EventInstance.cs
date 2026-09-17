@@ -251,12 +251,12 @@ namespace RimTalkCustomEvents.Scheduling
 
             var speaker = CurrentSpeaker();
 
-            // A priority event cuts in. Take what they were about to say first, so the
-            // opening line can pick up from where the conversation broke off rather than
-            // arriving out of nowhere.
+            // A priority event cuts in. Read what they were about to say, so the opening
+            // line can pick up from where the conversation broke off rather than arriving
+            // out of nowhere. Only *read* here — see below.
             string interrupted = null;
             var urgent = def.Priority && Phase == EventPhaseState.Beginning;
-            if (urgent) interrupted = RimTalkBridge.TakeUnspokenLines(speaker);
+            if (urgent) interrupted = RimTalkBridge.PeekUnspokenLines(speaker);
 
             var prompt = BuildPrompt(def, text);
 
@@ -271,9 +271,15 @@ namespace RimTalkCustomEvents.Scheduling
 
             if (request == null)
             {
+                // Nothing was discarded, so the pawn keeps whatever they were saying and
+                // the retry can capture it again.
                 HandleBlockedBeat(def, now);
                 return;
             }
+
+            // Only now that the beat is genuinely queued do we throw away what they were
+            // going to say instead.
+            if (urgent) RimTalkBridge.DropUnspokenLines(speaker);
 
             _inFlight = request;
             RTCELog.Debug($"{Pawn.LabelShort}: queued {PhaseLabel(def)} beat of \"{def.Label}\"");

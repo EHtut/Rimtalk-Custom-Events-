@@ -175,8 +175,13 @@ namespace RimTalkCustomEvents.Scheduling
         /// Skips concurrency and cooldown checks. Used by the dev trigger so testing an
         /// event never silently does nothing.
         /// </param>
+        /// <param name="countsAsRun">
+        /// Whether this start consumes one of the event's per-save runs. False when the
+        /// caller is starting several pawns as part of a single occurrence and has already
+        /// counted it.
+        /// </param>
         public bool TryStart(CustomEvent def, Pawn pawn, out string reason, bool bypassLimits = false,
-            List<Pawn> participants = null)
+            List<Pawn> participants = null, bool countsAsRun = true)
         {
             reason = null;
 
@@ -207,7 +212,7 @@ namespace RimTalkCustomEvents.Scheduling
 
             // The run cap is checked even for a dev/test fire: it's a property of the save,
             // and quietly exceeding it would make the number meaningless.
-            if (def.HasRunLimit && RunCount(def) >= def.MaxRunsPerSave)
+            if (countsAsRun && def.HasRunLimit && RunCount(def) >= def.MaxRunsPerSave)
             {
                 reason = def.MaxRunsPerSave == 0
                     ? $"\"{def.Label}\" is set to never fire (limit 0)"
@@ -223,7 +228,9 @@ namespace RimTalkCustomEvents.Scheduling
                     return false;
                 }
 
-                var onPawn = _instances.Count(i => !i.IsFinished && i.Pawn == pawn);
+                // Counts participants as well: being in a shared event still occupies a
+                // pawn, so they shouldn't simultaneously be the focus of another.
+                var onPawn = _instances.Count(i => !i.IsFinished && i.AllPawns.Contains(pawn));
                 if (onPawn >= settings.maxConcurrentPerPawn)
                 {
                     reason = $"{pawn.LabelShort} is already in an event";
@@ -253,8 +260,15 @@ namespace RimTalkCustomEvents.Scheduling
 
             var instance = new EventInstance(def, pawn, participants);
             _instances.Add(instance);
-            _lastFired[CooldownKey(pawn, def)] = Find.TickManager.TicksGame;
-            Bump(def);
+            // Everyone taking part goes on cooldown, not just the primary — otherwise a
+            // participant could be picked again immediately for the same event.
+            var firedAt = Find.TickManager.TicksGame;
+            foreach (var affected in instance.AllPawns)
+            {
+                _lastFired[CooldownKey(affected, def)] = firedAt;
+            }
+
+            if (countsAsRun) Bump(def);
 
             RTCELog.Message($"Started \"{def.Label}\" on {pawn.LabelShort}.");
             return true;
@@ -274,6 +288,17 @@ namespace RimTalkCustomEvents.Scheduling
                 return false;
             }
 
+            // One occurrence, however many pawns it touches. Checking the cap per pawn
+            // would let "max 1 per save" with "3 pawns affected" start one and silently
+            // refuse the rest.
+            if (def.HasRunLimit && RunCount(def) >= def.MaxRunsPerSave)
+            {
+                reason = def.MaxRunsPerSave == 0
+                    ? $"\"{def.Label}\" is set to never fire (limit 0)"
+                    : $"\"{def.Label}\" has already run {def.MaxRunsPerSave} time(s) this save";
+                return false;
+            }
+
             var wanted = Math.Max(1, def.Target.Count);
             var picked = PawnSelector.TryPickMany(def, map, wanted);
 
@@ -285,21 +310,28 @@ namespace RimTalkCustomEvents.Scheduling
 
             if (def.Target.Group == GroupMode.Shared && picked.Count > 1)
             {
-                return TryStart(def, picked[0], out reason, bypassLimits, picked.GetRange(1, picked.Count - 1));
+                var ok = TryStart(def, picked[0], out reason, bypassLimits,
+                    picked.GetRange(1, picked.Count - 1), countsAsRun: false);
+                if (ok) Bump(def);
+                return ok;
             }
 
-            // Independent: a separate event each. Counts as started if any of them did,
-            // since partial success is better than refusing the whole thing.
+            // Independent: a separate event each, but still one occurrence. Counts as
+            // started if any of them did — partial success beats refusing the whole thing.
             var started = 0;
             string lastReason = null;
 
             foreach (var pawn in picked)
             {
-                if (TryStart(def, pawn, out var why, bypassLimits)) started++;
+                if (TryStart(def, pawn, out var why, bypassLimits, countsAsRun: false)) started++;
                 else lastReason = why;
             }
 
-            if (started > 0) return true;
+            if (started > 0)
+            {
+                Bump(def);
+                return true;
+            }
 
             reason = lastReason ?? "no pawn could start it";
             return false;

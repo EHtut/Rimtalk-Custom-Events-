@@ -157,7 +157,7 @@ namespace RimTalkCustomEvents.Integration
         ///
         /// Returns null when there was nothing pending.
         /// </summary>
-        public static string TakeUnspokenLines(Pawn pawn)
+        public static string PeekUnspokenLines(Pawn pawn)
         {
             if (pawn == null) return null;
 
@@ -174,14 +174,30 @@ namespace RimTalkCustomEvents.Integration
                     .Where(t => !string.IsNullOrWhiteSpace(t))
                     .ToList();
 
-                state.IgnoreAllTalkResponses();
-
                 return lines.Count == 0 ? null : string.Join(" ", lines.ToArray());
             }
             catch (Exception ex)
             {
                 RTCELog.WarnOnce($"Could not read pending lines: {ex.Message}", 0x5C0FF4);
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Discards the pawn's unspoken lines. Kept separate from reading them so a beat
+        /// that fails to deliver does not destroy a conversation for nothing.
+        /// </summary>
+        public static void DropUnspokenLines(Pawn pawn)
+        {
+            if (pawn == null) return;
+
+            try
+            {
+                RimTalkCache.Get(pawn)?.IgnoreAllTalkResponses();
+            }
+            catch (Exception ex)
+            {
+                RTCELog.WarnOnce($"Could not clear pending lines: {ex.Message}", 0x5C0FF5);
             }
         }
 

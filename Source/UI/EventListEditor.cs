@@ -522,8 +522,6 @@ namespace RimTalkCustomEvents.UI
             var total = 0f;
             foreach (var arm in table.OneOf) total += Math.Max(0f, arm.Weight);
 
-            PendingWeights.Clear();
-
             foreach (var arm in new List<PhaseEffect>(table.OneOf))
             {
                 var row = listing.GetRect(26f);

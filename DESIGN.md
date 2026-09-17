@@ -539,10 +539,10 @@ Last reviewed 2026-09-17. **Running in-game and confirmed working.**
 
 | Gap | Note |
 |---|---|
-| **No Import / Export** | No way to share a single event from inside the game. |
 | **`relationship` effect** | Designed but never built. |
 | **Multi-pawn events** | Deliberately out of scope; every event targets one pawn. The schema leaves room for a `roles` block. |
-| **No translations** | All UI strings are hardcoded English. |
+| **No translations** | All UI strings are hardcoded English. Out of scope by decision (2026-09-17) — someone else can translate it later. |
+| **No Import / Export** | Out of scope by decision (2026-09-17). Events are files, so sharing one means sending the file. |
 
 ### Storage: settled
 
