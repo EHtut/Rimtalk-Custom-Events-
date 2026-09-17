@@ -308,8 +308,11 @@ Effect kinds:
 - `trait` — add or remove, with degree.
 - `skillXp` — `{ skill, amount }`.
 - `items` — ThingDefs and counts, spawned near the pawn: the reward.
-- `relationship` — opinion or relation change toward another pawn.
 - `message` — a letter or mote so the player notices.
+
+**Not built:** a `relationship` effect (opinion change toward another pawn) was in an
+earlier draft of this section. It is not parsed and not applied — the section claimed
+otherwise until 2026-09-17.
 
 Each effect takes an optional `chance` (0-1). A phase's effects can instead be a
 **weighted table** via `oneOf`, to pick exactly one arm — that's how an END fizzles
@@ -512,42 +515,45 @@ whatever events currently exist, and a missing one just ends that instance.
 
 ---
 
-## 12. Implementation order
+## 12. Status
 
-**v1 — the core loop:**
+Last reviewed 2026-09-17. **Running in-game and confirmed working.**
 
-| Phase | Deliverable | State |
-|---|---|---|
-| 1 | Skeleton: About.xml, csproj, build.ps1, mod class, settings | written, compiles |
-| 2 | JSON event store: parser, model, loader, validation, config-dir bootstrap, FROST starter | written, parser and schema verified against the real FROST file outside the game |
-| 3 | Scheduler GameComponent, instance state machine, beat injection with the readiness gate | written, compiles |
-| 4 | Dev-mode trigger gizmo | written, compiles |
+### Built
 
-**Outstanding:** none of it has run inside RimWorld yet. The check that matters is
-FROST playing BEGINNING → CONTINUE ×3 → END on a real colonist, and surviving a
-save/load mid-event.
-
-**v2 — the rest:**
-
-| Phase | Deliverable |
+| Area | What's there |
 |---|---|
-| A | Per-phase effects: hediff (accumulating), thought, need, `oneOf` tables, per-effect `chance`, `continueSpacing` | **done** |
-| B | Runtime HediffDef factory for inline `customHediffs` | **done** |
-| C | World effects: incident, chainEvent, items, trait, skillXp, message | **done** |
-| D | Def finder: runtime enumeration of all loaded defs + reference validation on load | **done** |
-| E | Triggers (daily, occasionally) + pawn targeting | **done** — no storyteller coupling, see §5 |
-| F | Mod Options: Events + Settings tabs, browser with Test fire and Reload | **done** |
-| G | JSON writer, event editor, def pickers, New/Edit/Delete | **done** — writer round-trip verified on 11 shapes |
-| H | Active-events window: live phase, next beat ETA, and why a beat is blocked | **done** |
-| I | Storyteller coupling removed outright (§5); git repo initialised | **done** |
-| — | **Run it in RimWorld** | the only thing left before v1 is real |
-| J | Prompt preview, active-events window, diagnostics report, .bak on comment-losing save | **done** |
-| K | CONTINUE modes (prompt / modifier / beat), intensity ramp, dropdown-driven Events tab | **done** |
-| — | Comment-preserving save, and `oneOf` editing in the UI | |
-| — | Translations | |
+| **Event format** | Lenient JSON parser (comments, trailing commas, raw newlines, line/column errors) and a writer that omits defaults. Round-trip verified. |
+| **Phases** | BEGINNING and END as spoken lines. CONTINUE as two independent parts — Beat (optionally ramping in intensity) and Modifier (folded into all the pawn's dialogue). |
+| **Effects, per phase** | hediff (accumulating or absolute, removable), thought, need, incident, chainEvent, items, trait, skillXp, message, `oneOf` weighted tables, per-effect `chance`, `scaleWithIntensity`. |
+| **Custom hediffs** | Inline definitions built into real `HediffDef`s at load, with stages, stat offsets, cap mods, decay and timed disappearance. |
+| **Def finder** | Runtime enumeration of everything the load order provides, filterable by source mod; reference validation on load names anything missing. |
+| **Scheduler** | Pull-based beat delivery gated on the pawn actually being able to speak, phase state machine, blocked-beat policy, save/load, chain queueing. |
+| **Triggers** | daily, occasionally, manual. Self-paced — no storyteller coupling by design (§5). |
+| **Targeting** | Category eligibility, pawnKinds, gender, age, required/excluded traits and hediffs, trait weighting, per-pawn cooldown, exclusion tags. *(Runtime only — see gaps.)* |
+| **UI** | Events tab as a task-manager list with inline editing, Settings tab, def pickers, prompt preview, Active events window, Diagnostics report, dev gizmo. |
+| **Verification** | 110 checks outside the game: parser, weighted rolls, every authoring form, writer round trips, clone independence, rename handling. |
 
-110 checks now run outside the game, covering the parser, the weighted-table roll, every
-authoring form, and a full write → reparse → compare round trip.
+### Known gaps
+
+| Gap | Note |
+|---|---|
+| **Target filters aren't editable in the UI** | Regression from moving the editor inline. They parse and work at runtime; only the editor lost them. |
+| **`oneOf` tables aren't editable in the UI** | Shown as a read-only summary; edit in the file. |
+| **No Import / Export** | No way to share a single event from inside the game. |
+| **`relationship` effect** | Designed but never built. |
+| **Multi-pawn events** | Deliberately out of scope; every event targets one pawn. The schema leaves room for a `roles` block. |
+| **No translations** | All UI strings are hardcoded English. |
+
+### Decided, pending implementation
+
+- **Storage moves to RimWorld's mod settings XML** (decided 2026-09-17), replacing one
+  JSON file per event. Consequences accepted: a settings reset wipes every event, one
+  parse failure takes all of them rather than one, and events can no longer carry
+  comments — which retires the comment-preserving-save item entirely. Import/Export
+  becomes the only sharing route, so it stops being optional.
+
+---
 
 ### Second audit (editor, writer, modifiers)
 
