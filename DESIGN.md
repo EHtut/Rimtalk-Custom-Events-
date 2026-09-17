@@ -10,7 +10,7 @@ incident behind at any phase.
 
 **Status:** v1 is feature-complete and compiles — events, per-phase effects, runtime
 hediffs, self-paced triggers, targeting, the JSON writer, three CONTINUE modes, and the
-Mod Options browser, editor and diagnostics. 102 checks pass outside the game.
+Mod Options browser, editor and diagnostics. 110 checks pass outside the game.
 **Nothing has been run inside RimWorld yet**; that is the one remaining gate.
 
 ---
@@ -161,24 +161,30 @@ This mirrors the shipped `Events/Frost.json`, minus its comments.
 }
 ```
 
-### CONTINUE modes
+### CONTINUE has two parts
 
-CONTINUE can carry the event forward three ways. BEGINNING and END are always spoken
-lines; only CONTINUE has a mode.
+CONTINUE is not one thing with a mode — it is made of two independent parts, either or
+both of which an event can use. BEGINNING and END are always spoken lines.
 
-| Mode | What it does |
+| Part | What it is |
 |---|---|
-| `prompt` (default) | A spoken line of its own, once per beat. |
-| `modifier` | No lines of its own — the text is folded into *every* prompt the pawn generates while the event runs, so it colours whatever they were already talking about. "Your skin is cold." |
-| `beat` | Discrete pulses whose **intensity** climbs from `intensity.from` to `intensity.to`. Effects marked `scaleWithIntensity` scale with it, so the mechanical bite grows alongside the wording. "Your skin grows colder", and the temperature offset deepens. |
+| **Beat** | What the pawn actually says, in pulses across the event. Optionally ramps: `intensity.from` → `intensity.to`, with effects marked `scaleWithIntensity` growing alongside. "Your skin grows colder." |
+| **Modifier** | Never becomes a line of its own. Folded into *every* prompt the pawn generates while the event runs, colouring their ordinary dialogue. "Your skin is cold." |
 
-`{intensity}` in the text renders as a word — faintly / noticeably / strongly /
+Using both is the normal case: the beat marks the escalation, the modifier keeps the
+event present in everything else they say between beats.
+
+`{intensity}` in the beat text renders as a word — faintly / noticeably / strongly /
 overwhelmingly — because a number means nothing to a model writing prose.
 
-Modifier mode is delivered through `RimTalkPromptAPI.InjectPawnSection`, the ambient
-channel originally deferred from v1. The active set is rebuilt from live instances
-each tick rather than registered and unregistered as events start and stop: one hook,
-no lifecycle to get wrong, and it restores itself after a save is loaded.
+Modifier text reaches RimTalk through `RimTalkPromptAPI.InjectPawnSection`. The active
+set is rebuilt from live instances each tick rather than registered and unregistered as
+events start and stop: one hook, no lifecycle to get wrong, and it restores itself after
+a save is loaded.
+
+**Back-compatible shapes**, all still parse: a bare string is the beat; a `{text,
+effects}` block is the beat; `mode: "modifier"` becomes the modifier part; `mode:
+"beat"` turns the ramp on.
 
 **Three texts, and the code handles the rest.** The author writes one BEGINNING, one
 CONTINUE and one END, exactly as in the original prompt. The scheduler decides how
@@ -386,14 +392,15 @@ start/stop. No rework of anything else.
 
 ## 8. UI
 
-- **Mod Options — Events tab.** Every loaded event with its beat shape, duration,
-  trigger and effect count; load problems in red; New event, Open folder, Reload from
-  disk, and Edit / Test fire / Delete per event. Delete asks first and names the file.
-- **Event editor.** Edits a working copy — cancelling changes nothing on disk, and a
-  half-finished edit can't be picked up by the scheduler mid-event. Covers identity,
-  all three phase texts, per-phase effects, timing, trigger and the main target
-  filters. Saving writes the JSON, then reloads from disk so what's running matches
-  the file.
+- **Mod Options — Events tab.** A task-manager-style list: one Name/Status row per
+  event, each expandable in place to reveal its editor. Editing inline rather than in a
+  modal keeps the list visible and means there's no window to lose your place in.
+  Status shows enabled state, trigger, duration, which CONTINUE parts are in use, and
+  a RUNNING marker when instances are live.
+- **Inline editor.** Expanding a row clones the event; nothing reaches disk or the
+  scheduler until Save, so Discard genuinely discards and a running instance can't
+  read half-typed text. Covers identity, all three phases, both CONTINUE parts,
+  per-phase effects, timing and trigger.
 
   Two honest limits: a `oneOf` weighted table shows as a summary and is edited in the
   file, and **saving discards comments**, because serialising goes through the typed
@@ -492,7 +499,7 @@ save/load mid-event.
 | — | Comment-preserving save, and `oneOf` editing in the UI | |
 | — | Translations | |
 
-102 checks now run outside the game, covering the parser, the weighted-table roll, every
+110 checks now run outside the game, covering the parser, the weighted-table roll, every
 authoring form, and a full write → reparse → compare round trip.
 
 ### Second audit (editor, writer, modifiers)

@@ -36,31 +36,6 @@ namespace RimTalkCustomEvents.Data
         Random
     }
 
-    /// <summary>How the CONTINUE phase carries the event forward.</summary>
-    public enum ContinueMode
-    {
-        /// <summary>
-        /// A discrete line the pawn is prompted to speak, once per beat. The original
-        /// behaviour and still the default.
-        /// </summary>
-        Prompt,
-
-        /// <summary>
-        /// No lines of its own. The text is folded into *every* prompt the pawn generates
-        /// while the event runs, so it colours whatever they happen to be talking about.
-        /// More dialogue flavour than mechanism — "your skin is cold".
-        /// </summary>
-        Modifier,
-
-        /// <summary>
-        /// Discrete pulses like Prompt, but with an intensity that climbs from
-        /// <c>intensityFrom</c> to <c>intensityTo</c> across the beats. Effects marked
-        /// <c>scaleWithIntensity</c> scale with it, so the mechanical bite grows alongside
-        /// the wording — "your skin grows colder", and the temperature offset deepens.
-        /// </summary>
-        Beat
-    }
-
     public enum HediffApplyMode
     {
         /// <summary>Add to any existing severity. This is what makes CONTINUE escalate.</summary>
@@ -238,9 +213,6 @@ namespace RimTalkCustomEvents.Data
         public string Text = "";
         public List<PhaseEffect> Effects = new List<PhaseEffect>();
 
-        /// <summary>Only meaningful on CONTINUE; BEGINNING and END are always prompts.</summary>
-        public ContinueMode Mode = ContinueMode.Prompt;
-
         /// <summary>
         /// Intensity at the first and last beat, for Beat mode. Both default to 1 so an
         /// event that doesn't use intensity behaves exactly as before.
@@ -257,7 +229,6 @@ namespace RimTalkCustomEvents.Data
         /// </summary>
         public float IntensityAt(int index, int total)
         {
-            if (Mode != ContinueMode.Beat) return 1f;
             if (total <= 1) return IntensityTo;
 
             var t = Math.Max(0, Math.Min(index, total - 1)) / (float)(total - 1);
@@ -293,19 +264,12 @@ namespace RimTalkCustomEvents.Data
             if (v.Type != JsonType.Object) return spec;
 
             spec.Text = v.GetString("text", "");
-            spec.Mode = PhaseEffect.ParseEnum(v.GetString("mode"), ContinueMode.Prompt);
 
             var intensity = v.Get("intensity");
             if (intensity != null && !intensity.IsNull)
             {
                 spec.IntensityFrom = intensity.GetFloat("from", 0.2f);
                 spec.IntensityTo = intensity.GetFloat("to", 1f);
-            }
-            else if (spec.Mode == ContinueMode.Beat)
-            {
-                // Beat mode without an explicit range still ramps — that's the point of it.
-                spec.IntensityFrom = 0.2f;
-                spec.IntensityTo = 1f;
             }
 
             foreach (var effect in v.GetArray("effects"))
@@ -317,15 +281,89 @@ namespace RimTalkCustomEvents.Data
         }
     }
 
+    /// <summary>
+    /// CONTINUE is made of two independent parts, either or both of which may be used.
+    ///
+    /// The Beat is what the pawn actually says, in pulses across the event. The Modifier
+    /// never becomes a line of its own — it rides along with whatever the pawn was already
+    /// saying, colouring their ordinary dialogue for as long as the event runs.
+    ///
+    /// "Your skin grows colder" is a beat. "Your skin is cold" is a modifier. An event can
+    /// have both at once, and usually wants to.
+    /// </summary>
+    public class ContinuePhase
+    {
+        public PhaseSpec Beat = new PhaseSpec();
+
+        /// <summary>Folded into every prompt for the pawn while the event runs.</summary>
+        public string ModifierText = "";
+
+        public bool HasBeat => Beat.HasText;
+        public bool HasModifier => !string.IsNullOrWhiteSpace(ModifierText);
+        public bool HasAnything => HasBeat || HasModifier;
+
+        /// <summary>True when the beat's intensity actually climbs rather than sitting flat.</summary>
+        public bool Ramps => Math.Abs(Beat.IntensityFrom - Beat.IntensityTo) > 0.0001f;
+
+        public static ContinuePhase FromJson(JsonValue v)
+        {
+            var phase = new ContinuePhase();
+            if (v == null || v.IsNull) return phase;
+
+            // A bare string, or a list, is just the beat text.
+            if (v.Type != JsonType.Object)
+            {
+                phase.Beat = PhaseSpec.FromJson(v);
+                return phase;
+            }
+
+            var beat = v.Get("beat");
+            var modifier = v.Get("modifier");
+
+            if (beat != null || modifier != null)
+            {
+                if (beat != null) phase.Beat = PhaseSpec.FromJson(beat);
+
+                // "modifier": "text" or { "text": "..." }
+                if (modifier != null && !modifier.IsNull)
+                {
+                    phase.ModifierText = modifier.Type == JsonType.Object
+                        ? modifier.GetString("text", "")
+                        : modifier.AsString("");
+                }
+
+                return phase;
+            }
+
+            // Older shape: a single text/effects block, optionally tagged with a mode.
+            // "modifier" there meant the whole CONTINUE was a modifier.
+            var legacyMode = v.GetString("mode");
+            if (string.Equals(legacyMode, "modifier", StringComparison.OrdinalIgnoreCase))
+            {
+                phase.ModifierText = v.GetString("text", "");
+                return phase;
+            }
+
+            phase.Beat = PhaseSpec.FromJson(v);
+
+            // "mode": "beat" used to be what turned the ramp on.
+            if (string.Equals(legacyMode, "beat", StringComparison.OrdinalIgnoreCase)
+                && v.Get("intensity") == null)
+            {
+                phase.Beat.IntensityFrom = 0.2f;
+                phase.Beat.IntensityTo = 1f;
+            }
+
+            return phase;
+        }
+    }
+
     public class EventPhases
     {
         public PhaseSpec Beginning = new PhaseSpec();
 
-        /// <summary>
-        /// Replayed once per CONTINUE beat. How many beats there are, and when each lands,
-        /// is worked out by the scheduler rather than the author.
-        /// </summary>
-        public PhaseSpec Continue = new PhaseSpec();
+        /// <summary>Two parts — see <see cref="ContinuePhase"/>.</summary>
+        public ContinuePhase Continue = new ContinuePhase();
 
         public PhaseSpec End = new PhaseSpec();
     }
@@ -441,14 +479,10 @@ namespace RimTalkCustomEvents.Data
         /// <summary>Absolute path this event was loaded from.</summary>
         public string SourcePath;
 
-        public bool HasContinueText => Phases.Continue.HasText;
+        public bool HasContinueText => Phases.Continue.HasBeat;
 
-        /// <summary>
-        /// Modifier-mode CONTINUE has no beats of its own — its text rides along with the
-        /// pawn's other dialogue instead, so the scheduler must not queue lines for it.
-        /// </summary>
-        public bool ContinueUsesBeats =>
-            Phases.Continue.Mode != ContinueMode.Modifier && HasContinueText;
+        /// <summary>Only a beat gets scheduled; a modifier has no lines of its own.</summary>
+        public bool ContinueUsesBeats => Phases.Continue.HasBeat;
 
         public static CustomEvent FromJson(JsonValue root, string sourcePath)
         {
@@ -467,7 +501,7 @@ namespace RimTalkCustomEvents.Data
             if (phases != null)
             {
                 e.Phases.Beginning = PhaseSpec.FromJson(phases.Get("beginning"));
-                e.Phases.Continue = PhaseSpec.FromJson(phases.Get("continue"));
+                e.Phases.Continue = ContinuePhase.FromJson(phases.Get("continue"));
                 e.Phases.End = PhaseSpec.FromJson(phases.Get("end"));
             }
 
@@ -599,7 +633,7 @@ namespace RimTalkCustomEvents.Data
         public IEnumerable<PhaseEffect> AllEffects()
         {
             foreach (var effect in Flatten(Phases.Beginning.Effects)) yield return effect;
-            foreach (var effect in Flatten(Phases.Continue.Effects)) yield return effect;
+            foreach (var effect in Flatten(Phases.Continue.Beat.Effects)) yield return effect;
             foreach (var effect in Flatten(Phases.End.Effects)) yield return effect;
         }
 
@@ -641,9 +675,9 @@ namespace RimTalkCustomEvents.Data
                 warnings.Add($"\"timing.continueCount\" is {Timing.ContinueCount} but \"phases.continue\" is empty — the event will go straight from BEGINNING to END");
             }
 
-            if (Phases.Continue.Effects.Count > 0 && !HasContinueText)
+            if (Phases.Continue.Beat.Effects.Count > 0 && !Phases.Continue.HasBeat)
             {
-                warnings.Add("\"phases.continue\" has effects but no text — those effects will never run");
+                warnings.Add("the CONTINUE beat has effects but no text — those effects will never run");
             }
 
             if (Timing.ContinueJitter < 0f || Timing.ContinueJitter > 1f)

@@ -338,7 +338,7 @@ namespace RimTalkCustomEvents.Scheduling
         private float CurrentIntensity(CustomEvent def)
         {
             return Phase == EventPhaseState.Continuing
-                ? def.Phases.Continue.IntensityAt(BeatIndex, ContinueBeatTicks.Count)
+                ? def.Phases.Continue.Beat.IntensityAt(BeatIndex, ContinueBeatTicks.Count)
                 : 1f;
         }
 
@@ -353,10 +353,9 @@ namespace RimTalkCustomEvents.Scheduling
             if (Phase == EventPhaseState.Beginning) return null;
 
             var def = Def;
-            if (def == null) return null;
-            if (def.Phases.Continue.Mode != ContinueMode.Modifier) return null;
-
-            return def.Phases.Continue.HasText ? def.Phases.Continue.Text : null;
+            return def != null && def.Phases.Continue.HasModifier
+                ? def.Phases.Continue.ModifierText
+                : null;
         }
 
         private PhaseSpec CurrentPhaseSpec(CustomEvent def)
@@ -364,7 +363,7 @@ namespace RimTalkCustomEvents.Scheduling
             switch (Phase)
             {
                 case EventPhaseState.Beginning: return def.Phases.Beginning;
-                case EventPhaseState.Continuing: return def.Phases.Continue;
+                case EventPhaseState.Continuing: return def.Phases.Continue.Beat;
                 case EventPhaseState.Ending: return def.Phases.End;
                 default: return null;
             }

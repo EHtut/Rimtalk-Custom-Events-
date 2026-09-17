@@ -3,8 +3,8 @@
   // without waiting half a day of game time. Good first thing to test.
   //
   // Where FROST uses "prompt" mode (each CONTINUE is its own spoken line), this
-  // uses "beat": the same text pulses several times, growing stronger, and the
-  // effects grow with it.
+  // uses both CONTINUE parts: a beat that pulses and grows stronger, plus a
+  // modifier that tints their ordinary dialogue the whole time.
 
   "defName": "ColdCreep",
   "label": "cold creep",
@@ -15,26 +15,35 @@
     "beginning": "A thin draught finds the back of their neck and stays there.",
 
     "continue": {
-      "mode": "beat",
-      "text": "The cold presses in {intensity} — their fingers are going stiff.",
+      // CONTINUE has two parts. Use either, or both.
 
-      // Beat 1 sits at 0.15, the last at 1.0, the rest spread between.
-      // {intensity} above turns into a word: faintly, noticeably, strongly,
-      // overwhelmingly.
-      "intensity": { "from": 0.15, "to": 1.0 },
+      // BEAT — what they actually say, pulsed through the event.
+      "beat": {
+        "text": "The cold presses in {intensity} — their fingers are going stiff.",
 
-      "effects": [
-        // scaleWithIntensity multiplies the numbers by the beat's intensity, so
-        // the first pulse is a scratch and the last one bites.
-        {
-          "scaleWithIntensity": true,
-          "hediff": { "def": "RTCE_ColdCreep", "severity": 0.25 }
-        },
-        {
-          "scaleWithIntensity": true,
-          "need": { "def": "Comfort", "offset": -0.15 }
-        }
-      ]
+        // Beat 1 sits at 0.15, the last at 1.0, the rest spread between.
+        // {intensity} above becomes a word: faintly / noticeably / strongly /
+        // overwhelmingly. Omit "intensity" entirely and every beat hits equally.
+        "intensity": { "from": 0.15, "to": 1.0 },
+
+        "effects": [
+          // scaleWithIntensity multiplies the numbers by the beat's intensity, so
+          // the first pulse is a scratch and the last one bites.
+          {
+            "scaleWithIntensity": true,
+            "hediff": { "def": "RTCE_ColdCreep", "severity": 0.25 }
+          },
+          {
+            "scaleWithIntensity": true,
+            "need": { "def": "Comfort", "offset": -0.15 }
+          }
+        ]
+      },
+
+      // MODIFIER — never a line of its own. Folded into everything they say for as
+      // long as the event runs, so it colours ordinary chatter rather than
+      // announcing itself.
+      "modifier": "Their hands are cold and they cannot get warm."
     },
 
     "end": {

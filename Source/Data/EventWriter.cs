@@ -35,7 +35,7 @@ namespace RimTalkCustomEvents.Data
             // ---- phases ----
             w.BeginObject("phases");
             WritePhase(w, "beginning", e.Phases.Beginning);
-            WritePhase(w, "continue", e.Phases.Continue);
+            WriteContinue(w, e.Phases.Continue);
             WritePhase(w, "end", e.Phases.End);
             w.EndObject();
 
@@ -153,21 +153,21 @@ namespace RimTalkCustomEvents.Data
             if (phase == null) return;
             if (!phase.HasText && phase.Effects.Count == 0) return;
 
-            // The bare-string form only works when there is nothing else to record.
-            var plain = phase.Effects.Count == 0
-                        && phase.Mode == ContinueMode.Prompt
-                        && !HasIntensityRange(phase);
-
-            if (plain)
+            if (phase.Effects.Count == 0 && !HasIntensityRange(phase))
             {
                 w.Write(key, phase.Text);
                 return;
             }
 
             w.BeginObject(key);
-            w.Write("text", phase.Text ?? "");
+            WritePhaseBody(w, phase);
+            w.EndObject();
+        }
 
-            if (phase.Mode != ContinueMode.Prompt) w.Write("mode", phase.Mode.ToString().ToLowerInvariant());
+        /// <summary>Shared by the bare phases and the CONTINUE beat.</summary>
+        private static void WritePhaseBody(JsonWriter w, PhaseSpec phase)
+        {
+            w.Write("text", phase.Text ?? "");
 
             if (HasIntensityRange(phase))
             {
@@ -177,15 +177,38 @@ namespace RimTalkCustomEvents.Data
                 w.EndObject();
             }
 
-            if (phase.Effects.Count == 0)
-            {
-                w.EndObject();
-                return;
-            }
+            if (phase.Effects.Count == 0) return;
 
             w.BeginArray("effects");
             foreach (var effect in phase.Effects) WriteEffect(w, effect);
             w.EndArray();
+        }
+
+        /// <summary>
+        /// CONTINUE's two parts. Collapses to a bare string when it's only a plain beat,
+        /// so a simple event still reads simply.
+        /// </summary>
+        private static void WriteContinue(JsonWriter w, ContinuePhase phase)
+        {
+            if (phase == null || !phase.HasAnything) return;
+
+            if (!phase.HasModifier && phase.Beat.Effects.Count == 0 && !HasIntensityRange(phase.Beat))
+            {
+                w.Write("continue", phase.Beat.Text);
+                return;
+            }
+
+            w.BeginObject("continue");
+
+            if (phase.HasBeat || phase.Beat.Effects.Count > 0)
+            {
+                w.BeginObject("beat");
+                WritePhaseBody(w, phase.Beat);
+                w.EndObject();
+            }
+
+            if (phase.HasModifier) w.Write("modifier", phase.ModifierText);
+
             w.EndObject();
         }
 
