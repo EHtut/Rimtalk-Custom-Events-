@@ -8,10 +8,10 @@ incident behind at any phase.
 > This is the single source of truth for the design. Update it in the same session
 > that changes the design; delete sections that stop describing anything real.
 
-**Status:** v1 is feature-complete and compiles — events, effects, runtime hediffs,
-triggers, targeting, the JSON writer, and the Mod Options browser and editor. 53 checks
-pass outside the game. **Nothing has been run inside RimWorld yet**; that is the one
-remaining gate.
+**Status:** v1 is feature-complete and compiles — events, per-phase effects, runtime
+hediffs, self-paced triggers, targeting, the JSON writer, three CONTINUE modes, and the
+Mod Options browser, editor and diagnostics. 89 checks pass outside the game.
+**Nothing has been run inside RimWorld yet**; that is the one remaining gate.
 
 ---
 
@@ -29,7 +29,7 @@ Full RimTalk source is vendored at `<workshop>/294100/3642675329/ref/RimTalk`
 | `GetTicksForDuration(s)` = **real-time seconds × tick rate** | `Util/CommonUtil.cs:15` | ⚠️ **A queued phase dies after ~20 real-time seconds.** Fire-and-forget silently drops beats. |
 | `CanDisplayTalk()` false when drafted / asleep / off-map / dead (settings-dependent) | `Data/PawnState.cs:91` | Must gate before firing, not after. |
 | `CanGenerateTalk()` also requires no in-flight generation + reply interval elapsed | `Data/PawnState.cs:106` | Our readiness check. |
-| `RimTalkPromptAPI` — `RegisterPawnVariable`, `RegisterPawnHook`, `InjectPawnSection`, `UnregisterAllHooks(modId)` | `API/RimTalkPromptAPI.cs` | Official, stable extension surface. Not used in v1 (§7), but it's what a future ambient-context channel would be built on. |
+| `RimTalkPromptAPI.InjectPawnSection(modId, name, anchor, position, provider)` | `API/RimTalkPromptAPI.cs` | Official extension surface. This is how Modifier-mode CONTINUE reaches every prompt for a pawn. Anchors are nested: `ContextCategories.Pawn.Health`, not `ContextCategories.Health`. |
 | RimTalk templates run through **Scriban** | `Prompt/Parser/ScribanParser.cs` | Event text can support `{{pawn.name}}`-style variables. |
 | `MarkRequestSpoken` runs when a request is **dispatched to the LLM**, not when the line appears | `Service/TalkService.cs:92` | "Delivered" means the prompt reached the model, nothing stronger. |
 | Building scene context **consumes other pawns' queued requests** and folds them into the prompt | `Util/PawnUtil.cs:230-233` | A beat may surface as scene context for a nearby pawn's conversation rather than a dedicated line. Still counts as delivered. |
@@ -51,7 +51,7 @@ RimTalkCustomEvents
 ├─ Triggers      Daily / MTB "occasionally" / manual — self-paced, no storyteller
 ├─ Scheduler     GameComponent: owns active instances, ticks the state machine
 ├─ Instance      Per-pawn state machine: Beginning → Continuing×N → Ending
-├─ Injection     PawnState.AddTalkRequest (TalkType.Event)
+├─ Injection     PawnState.AddTalkRequest (beats) + InjectPawnSection (modifiers)
 ├─ Effects       Per phase: hediff / thought / need / incident / chain / items / trait
 ├─ HediffFactory Runtime-generated HediffDefs from inline event definitions
 ├─ Writer        CustomEvent → JSON, defaults omitted, round-trip verified
