@@ -228,6 +228,12 @@ namespace RimTalkCustomEvents.UI
                 case TriggerMode.Daily:
                     bits.Add($"daily {e.Trigger.DailyHour}:00");
                     break;
+                case TriggerMode.Monthly:
+                    bits.Add($"monthly {e.Trigger.DailyHour}:00");
+                    break;
+                case TriggerMode.Yearly:
+                    bits.Add($"yearly {e.Trigger.DailyHour}:00");
+                    break;
                 case TriggerMode.Occasionally:
                     bits.Add($"~{e.Trigger.MtbDays:0.#}d");
                     break;
@@ -242,6 +248,15 @@ namespace RimTalkCustomEvents.UI
             if (e.Phases.Continue.HasBeat) parts.Add($"beat ×{e.Timing.ContinueCount}");
             if (e.Phases.Continue.HasModifier) parts.Add("modifier");
             if (parts.Count > 0) bits.Add(string.Join(" + ", parts.ToArray()));
+
+            if (e.Target.Count > 1)
+            {
+                bits.Add($"{e.Target.Count} pawns, {(e.Target.Group == GroupMode.Shared ? "shared" : "separate")}");
+            }
+
+            if (!string.IsNullOrEmpty(e.Target.SpecificPawnName)) bits.Add(e.Target.SpecificPawnName + " only");
+            if (e.Priority) bits.Add("priority");
+            if (e.HasRunLimit) bits.Add($"max {e.MaxRunsPerSave}/save");
 
             if (RunningCounts.TryGetValue(e.DefName, out var running) && running > 0)
             {
@@ -328,6 +343,36 @@ namespace RimTalkCustomEvents.UI
                 var enabled = e.Enabled;
                 listing.CheckboxLabeled("Enabled", ref enabled);
                 e.Enabled = enabled;
+
+                // Opt-in, so 0 unambiguously means "never" rather than "no limit".
+                var capped = e.HasRunLimit;
+                listing.CheckboxLabeled("Limit how many times this can happen per save", ref capped,
+                    "Off means it can happen as often as its trigger allows.");
+
+                if (capped && !e.HasRunLimit) e.MaxRunsPerSave = 1;
+                else if (!capped && e.HasRunLimit) e.MaxRunsPerSave = -1;
+
+                if (e.HasRunLimit)
+                {
+                    e.MaxRunsPerSave = (int)Number(listing, "   Times per save", "maxRuns", e.MaxRunsPerSave, 0f, 9999f);
+
+                    var component = CustomEventsGameComponent.Current;
+                    if (component != null)
+                    {
+                        Text.Font = GameFont.Tiny;
+                        var used = GUI.color;
+                        GUI.color = new Color(0.7f, 0.7f, 0.7f);
+                        listing.Label($"   Used {component.RunCount(e)} of {e.MaxRunsPerSave} in this save.");
+                        GUI.color = used;
+                        Text.Font = GameFont.Small;
+                    }
+                }
+
+                var priority = e.Priority;
+                listing.CheckboxLabeled("Cut in over whatever they were saying", ref priority,
+                    "Discards their unspoken queued lines and starts the event immediately. What they "
+                    + "were about to say is fed into the opening prompt, so it picks up mid-thought.");
+                e.Priority = priority;
 
                 listing.GapLine();
 
@@ -623,10 +668,10 @@ namespace RimTalkCustomEvents.UI
                 Find.WindowStack.Add(new FloatMenu(options));
             }
 
-            if (e.Trigger.Mode == TriggerMode.Daily)
+            if (TriggerScheduler.IsCalendarMode(e.Trigger.Mode))
             {
                 e.Trigger.DailyHour = (int)Number(listing, "Hour of day (0-23)", "hour", e.Trigger.DailyHour, 0f, 23f);
-                e.Trigger.DailyChance = Number(listing, "Chance each day (0-1)", "chance", e.Trigger.DailyChance, 0f, 1f);
+                e.Trigger.DailyChance = Number(listing, "Chance each time (0-1)", "chance", e.Trigger.DailyChance, 0f, 1f);
             }
             else if (e.Trigger.Mode == TriggerMode.Occasionally)
             {
@@ -648,6 +693,47 @@ namespace RimTalkCustomEvents.UI
             Heading(listing, "Who it happens to");
 
             var t = e.Target;
+
+            t.Count = (int)Number(listing, "How many pawns affected", "count", t.Count, 1f, 20f);
+
+            if (t.Count > 1)
+            {
+                if (listing.ButtonText($"   They get: {DescribeGroup(t.Group)}", null, 0.62f))
+                {
+                    t.Group = t.Group == GroupMode.Independent ? GroupMode.Shared : GroupMode.Independent;
+                }
+
+                Text.Font = GameFont.Tiny;
+                var groupHint = GUI.color;
+                GUI.color = new Color(0.7f, 0.7f, 0.7f);
+                listing.Label(t.Group == GroupMode.Shared
+                    ? "   One event they all take part in. Beats pass between them, effects land on everyone."
+                    : "   A separate event each, on its own timing. They need not even overlap.");
+                GUI.color = groupHint;
+                Text.Font = GameFont.Small;
+            }
+
+            var named = !string.IsNullOrEmpty(t.SpecificPawnName);
+            var wantsNamed = named;
+            listing.CheckboxLabeled("Only one specific pawn", ref wantsNamed,
+                "Matched by name. A name nobody on the map has simply means the event cannot fire, "
+                + "so this will not carry across to a different colony.");
+
+            if (!wantsNamed && named) t.SpecificPawnName = null;
+
+            if (wantsNamed)
+            {
+                var pawnRow = listing.GetRect(26f);
+                Widgets.Label(new Rect(pawnRow.x + 14f, pawnRow.y + 3f, pawnRow.width * 0.42f, pawnRow.height),
+                    named ? t.SpecificPawnName : "(nobody chosen)");
+
+                if (Widgets.ButtonText(
+                        new Rect(pawnRow.x + pawnRow.width * 0.5f, pawnRow.y, pawnRow.width * 0.5f, 24f),
+                        "Choose a colonist..."))
+                {
+                    ShowPawnMenu(t);
+                }
+            }
 
             t.CooldownDays = Number(listing, "Cooldown per pawn (days)", "cooldown", t.CooldownDays, 0f, 360f);
 
@@ -802,11 +888,45 @@ namespace RimTalkCustomEvents.UI
             }
         }
 
+        private static string DescribeGroup(GroupMode mode)
+        {
+            return mode == GroupMode.Shared ? "one shared event" : "a separate event each";
+        }
+
+        /// <summary>
+        /// Offers the pawns currently on the map. Typing a name freehand would let you pick
+        /// somebody who does not exist, which then fails silently at trigger time.
+        /// </summary>
+        private static void ShowPawnMenu(EventTarget t)
+        {
+            var options = new List<FloatMenuOption>();
+            var map = Find.CurrentMap;
+
+            if (map != null)
+            {
+                foreach (var pawn in map.mapPawns.FreeColonistsSpawned)
+                {
+                    var captured = pawn;
+                    options.Add(new FloatMenuOption(captured.LabelShortCap,
+                        () => t.SpecificPawnName = captured.LabelShort));
+                }
+            }
+
+            if (options.Count == 0)
+            {
+                options.Add(new FloatMenuOption("(no colonists - open a save first)", null));
+            }
+
+            Find.WindowStack.Add(new FloatMenu(options));
+        }
+
         private static string DescribeTrigger(TriggerMode mode)
         {
             switch (mode)
             {
                 case TriggerMode.Daily: return "Daily, at a set hour";
+                case TriggerMode.Monthly: return "Monthly (once a quadrum), at a set hour";
+                case TriggerMode.Yearly: return "Yearly, at a set hour";
                 case TriggerMode.Occasionally: return "Occasionally, at random intervals";
                 default: return "Manual — only when you fire it";
             }

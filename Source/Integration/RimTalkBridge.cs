@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using RimTalk.Data;
 using RimTalk.Source.Data;
 using RimTalkCustomEvents.Util;
@@ -68,7 +69,7 @@ namespace RimTalkCustomEvents.Integration
         /// nearby pawn's conversation rather than producing a dedicated line. Either way the
         /// prompt reached the model, which is what we count as delivery.
         /// </summary>
-        public static TalkRequest Deliver(Pawn pawn, string prompt)
+        public static TalkRequest Deliver(Pawn pawn, string prompt, bool urgent = false)
         {
             if (pawn == null || string.IsNullOrEmpty(prompt)) return null;
 
@@ -77,7 +78,9 @@ namespace RimTalkCustomEvents.Integration
                 var state = RimTalkCache.Get(pawn);
                 if (state == null) return null;
 
-                state.AddTalkRequest(prompt, null, TalkType.Event);
+                // Urgent clears the pawn's other pending requests, which is how RimTalk
+                // itself handles something that has to be said now.
+                state.AddTalkRequest(prompt, null, urgent ? TalkType.Urgent : TalkType.Event);
 
                 // TalkType.Event is queued with AddFirst, so ours is at the head. Verify
                 // rather than assume, in case that ordering ever changes upstream.
@@ -141,6 +144,44 @@ namespace RimTalkCustomEvents.Integration
             {
                 RTCELog.WarnOnce($"RimTalk status check failed: {ex.Message}", 0x5C0FF3);
                 return BeatStatus.Lost;
+            }
+        }
+
+        /// <summary>
+        /// Takes the lines this pawn had queued but has not said yet, and clears them.
+        ///
+        /// RimTalk generates a conversation as several responses and displays them one at a
+        /// time, so whatever is still in that list is precisely what the pawn was *about* to
+        /// say. Reading it is better than estimating from elapsed time: it is exactly the
+        /// thread the event is cutting off, and it can be handed to the model as context.
+        ///
+        /// Returns null when there was nothing pending.
+        /// </summary>
+        public static string TakeUnspokenLines(Pawn pawn)
+        {
+            if (pawn == null) return null;
+
+            try
+            {
+                var state = RimTalkCache.Get(pawn);
+                if (state == null || state.TalkResponses.Count == 0) return null;
+
+                // Only the next couple matter; a whole queued conversation would swamp the
+                // event's own prompt.
+                var lines = state.TalkResponses
+                    .Take(2)
+                    .Select(r => r.Text)
+                    .Where(t => !string.IsNullOrWhiteSpace(t))
+                    .ToList();
+
+                state.IgnoreAllTalkResponses();
+
+                return lines.Count == 0 ? null : string.Join(" ", lines.ToArray());
+            }
+            catch (Exception ex)
+            {
+                RTCELog.WarnOnce($"Could not read pending lines: {ex.Message}", 0x5C0FF4);
+                return null;
             }
         }
 

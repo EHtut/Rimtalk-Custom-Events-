@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using RimTalk.Data;
 using RimWorld;
@@ -33,7 +34,16 @@ namespace RimTalkCustomEvents.Scheduling
         private const int TicksPerHour = GenDate.TicksPerHour;
 
         public string EventDefName;
+
+        /// <summary>Whose event this primarily is. BEGINNING and END are always theirs.</summary>
         public Pawn Pawn;
+
+        /// <summary>
+        /// The other pawns taking part, for a shared event. Empty for the usual single-pawn
+        /// case. Effects land on everyone; CONTINUE beats rotate between them so the event
+        /// reads as something they are going through together.
+        /// </summary>
+        public List<Pawn> Participants = new List<Pawn>();
         public EventPhaseState Phase = EventPhaseState.Beginning;
 
         public int StartTick;
@@ -63,10 +73,11 @@ namespace RimTalkCustomEvents.Scheduling
         {
         }
 
-        public EventInstance(CustomEvent def, Pawn pawn)
+        public EventInstance(CustomEvent def, Pawn pawn, List<Pawn> participants = null)
         {
             EventDefName = def.DefName;
             Pawn = pawn;
+            if (participants != null) Participants.AddRange(participants.Where(p => p != null && p != pawn));
             StartTick = Find.TickManager.TicksGame;
             Phase = EventPhaseState.Beginning;
             BeatDueSinceTick = StartTick;
@@ -74,6 +85,34 @@ namespace RimTalkCustomEvents.Scheduling
         }
 
         public bool IsFinished => Phase == EventPhaseState.Complete || Phase == EventPhaseState.Aborted;
+
+        public bool IsShared => Participants.Count > 0;
+
+        /// <summary>Primary first, then the rest. Effects apply to all of these.</summary>
+        public IEnumerable<Pawn> AllPawns
+        {
+            get
+            {
+                if (Pawn != null) yield return Pawn;
+                foreach (var participant in Participants)
+                {
+                    if (participant != null && !participant.Dead) yield return participant;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Who speaks the beat about to fire. BEGINNING and END stay with the primary so the
+        /// event opens and closes in one voice; CONTINUE beats rotate through the group.
+        /// </summary>
+        public Pawn CurrentSpeaker()
+        {
+            if (!IsShared || Phase != EventPhaseState.Continuing) return Pawn;
+
+            var everyone = AllPawns.ToList();
+            if (everyone.Count == 0) return Pawn;
+            return everyone[BeatIndex % everyone.Count];
+        }
 
         public CustomEvent Def => EventStore.Get(EventDefName);
 
@@ -164,7 +203,7 @@ namespace RimTalkCustomEvents.Scheduling
             // wait against beatTimeoutHours, and skip beats that were never blocked.
             if (BeatDueSinceTick < 0) BeatDueSinceTick = now;
 
-            if (!RimTalkBridge.CanSpeakNow(Pawn))
+            if (!RimTalkBridge.CanSpeakNow(CurrentSpeaker()))
             {
                 HandleBlockedBeat(def, now);
                 return;
@@ -210,8 +249,25 @@ namespace RimTalkCustomEvents.Scheduling
                 return;
             }
 
+            var speaker = CurrentSpeaker();
+
+            // A priority event cuts in. Take what they were about to say first, so the
+            // opening line can pick up from where the conversation broke off rather than
+            // arriving out of nowhere.
+            string interrupted = null;
+            var urgent = def.Priority && Phase == EventPhaseState.Beginning;
+            if (urgent) interrupted = RimTalkBridge.TakeUnspokenLines(speaker);
+
             var prompt = BuildPrompt(def, text);
-            var request = RimTalkBridge.Deliver(Pawn, prompt);
+
+            if (interrupted != null)
+            {
+                prompt += Environment.NewLine
+                          + "(They were in the middle of saying: \"" + interrupted + "\" — this cuts them "
+                          + "off mid-thought. Carry on from that moment.)";
+            }
+
+            var request = RimTalkBridge.Deliver(speaker, prompt, urgent);
 
             if (request == null)
             {
@@ -225,7 +281,7 @@ namespace RimTalkCustomEvents.Scheduling
 
         private void FollowInFlightBeat(CustomEvent def, int now)
         {
-            var status = RimTalkBridge.GetStatus(Pawn, _inFlight);
+            var status = RimTalkBridge.GetStatus(CurrentSpeaker(), _inFlight);
 
             switch (status)
             {
@@ -241,8 +297,12 @@ namespace RimTalkCustomEvents.Scheduling
 
                     // Effects run on delivery, while Phase still points at the beat that
                     // just landed — AdvanceAfterBeat moves it on.
-                    EffectRunner.RunAll(CurrentPhaseSpec(def)?.Effects, Pawn, def.Label ?? def.DefName,
-                        CurrentIntensity(def));
+                    var effects = CurrentPhaseSpec(def)?.Effects;
+                    var intensity = CurrentIntensity(def);
+                    foreach (var affected in AllPawns.ToList())
+                    {
+                        EffectRunner.RunAll(effects, affected, def.Label ?? def.DefName, intensity);
+                    }
 
                     AdvanceAfterBeat(def, now);
                     return;
@@ -392,6 +452,18 @@ namespace RimTalkCustomEvents.Scheduling
         /// </summary>
         private string BuildPrompt(CustomEvent def, string text)
         {
+            // A shared event needs the model to know the others are in it too, or each beat
+            // reads as an unrelated solo moment.
+            if (IsShared)
+            {
+                var others = AllPawns.Where(p => p != CurrentSpeaker()).Select(p => p.LabelShort).ToList();
+                if (others.Count > 0)
+                {
+                    text = $"{text} (Also affected, going through the same thing: "
+                           + string.Join(", ", others.ToArray()) + ".)";
+                }
+            }
+
             return PromptBuilder.Build(
                 RimTalkCustomEventsMod.Settings?.promptWrapper,
                 def.Label ?? def.DefName,
@@ -399,7 +471,7 @@ namespace RimTalkCustomEvents.Scheduling
                 PhaseName(),
                 BeatIndex + 1,
                 ContinueBeatTicks.Count,
-                Pawn?.LabelShort,
+                CurrentSpeaker()?.LabelShort,
                 text,
                 CurrentIntensity(def));
         }
@@ -431,6 +503,7 @@ namespace RimTalkCustomEvents.Scheduling
         {
             Scribe_Values.Look(ref EventDefName, "eventDefName");
             Scribe_References.Look(ref Pawn, "pawn");
+            Scribe_Collections.Look(ref Participants, "participants", LookMode.Reference);
             Scribe_Values.Look(ref Phase, "phase", EventPhaseState.Beginning);
             Scribe_Values.Look(ref StartTick, "startTick");
             Scribe_Values.Look(ref EndTick, "endTick");
@@ -443,6 +516,8 @@ namespace RimTalkCustomEvents.Scheduling
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
                 ContinueBeatTicks = ContinueBeatTicks ?? new List<int>();
+                Participants = Participants ?? new List<Pawn>();
+                Participants.RemoveAll(p => p == null);
                 // An in-flight request can't be saved; re-arm so the beat is retried.
                 _inFlight = null;
                 BeatDueSinceTick = -1;

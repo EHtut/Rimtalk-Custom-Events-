@@ -31,6 +31,8 @@ namespace RimTalkCustomEvents.Data
             if (!string.IsNullOrEmpty(e.Label) && e.Label != e.DefName) w.Write("label", e.Label);
             if (!string.IsNullOrEmpty(e.Description)) w.Write("description", e.Description);
             if (!e.Enabled) w.Write("enabled", false);
+            if (e.HasRunLimit) w.Write("maxRunsPerSave", e.MaxRunsPerSave);
+            if (e.Priority) w.Write("priority", true);
 
             // ---- phases ----
             w.BeginObject("phases");
@@ -72,12 +74,15 @@ namespace RimTalkCustomEvents.Data
             w.BeginObject("trigger");
             w.Write("mode", trigger.Mode.ToString().ToLowerInvariant());
 
-            if (trigger.Mode == TriggerMode.Daily)
+            // Daily, Monthly and Yearly all fire at a chosen hour, so they all need it
+            // written — only Occasionally uses a mean-time-between instead.
+            if (trigger.Mode == TriggerMode.Daily || trigger.Mode == TriggerMode.Monthly
+                                                  || trigger.Mode == TriggerMode.Yearly)
             {
                 w.Write("dailyHour", trigger.DailyHour);
                 if (Differs(trigger.DailyChance, triggerDefaults.DailyChance)) w.Write("dailyChance", trigger.DailyChance);
             }
-            else if (trigger.Mode != TriggerMode.Manual)
+            else if (trigger.Mode == TriggerMode.Occasionally)
             {
                 w.Write("mtbDays", trigger.MtbDays);
             }
@@ -100,13 +105,17 @@ namespace RimTalkCustomEvents.Data
                 target.PawnKinds.Count > 0 || target.RequiredTraits.Count > 0 || target.ExcludedTraits.Count > 0 ||
                 target.RequiredHediffs.Count > 0 || target.ExcludedHediffs.Count > 0 ||
                 target.WeightByTrait.Count > 0 || target.ExclusionTags.Count > 0 ||
-                !string.IsNullOrEmpty(target.Gender) ||
+                !string.IsNullOrEmpty(target.Gender) || !string.IsNullOrEmpty(target.SpecificPawnName) ||
+                target.Count != 1 || target.Group != GroupMode.Independent ||
                 target.MinAge >= 0f || target.MaxAge >= 0f ||
                 Differs(target.CooldownDays, targetDefaults.CooldownDays);
 
             if (targetChanged)
             {
                 w.BeginObject("target");
+                if (!string.IsNullOrEmpty(target.SpecificPawnName)) w.Write("pawnName", target.SpecificPawnName);
+                if (target.Count != 1) w.Write("count", target.Count);
+                if (target.Group != GroupMode.Independent) w.Write("group", target.Group.ToString().ToLowerInvariant());
                 WriteStringList(w, "pawnKinds", target.PawnKinds);
                 if (!string.IsNullOrEmpty(target.Gender)) w.Write("gender", target.Gender);
                 if (target.MinAge >= 0f) w.Write("minAge", target.MinAge);

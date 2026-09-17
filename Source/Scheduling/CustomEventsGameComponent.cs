@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using RimTalkCustomEvents.Data;
@@ -27,8 +28,11 @@ namespace RimTalkCustomEvents.Scheduling
         /// <summary>Event defName -> tick it last fired automatically, for minRefireDays.</summary>
         private Dictionary<string, int> _lastAutoFireTick = new Dictionary<string, int>();
 
-        /// <summary>Event defName -> day it last fired, so a daily event fires once a day.</summary>
+        /// <summary>Event defName -> period it last fired in, so a calendar event fires once per period.</summary>
         private Dictionary<string, int> _lastDailyDay = new Dictionary<string, int>();
+
+        /// <summary>Event defName -> how many times it has fired in this save, for maxRunsPerSave.</summary>
+        private Dictionary<string, int> _runCounts = new Dictionary<string, int>();
 
         private bool _warnedAboutMonologues;
 
@@ -171,7 +175,8 @@ namespace RimTalkCustomEvents.Scheduling
         /// Skips concurrency and cooldown checks. Used by the dev trigger so testing an
         /// event never silently does nothing.
         /// </param>
-        public bool TryStart(CustomEvent def, Pawn pawn, out string reason, bool bypassLimits = false)
+        public bool TryStart(CustomEvent def, Pawn pawn, out string reason, bool bypassLimits = false,
+            List<Pawn> participants = null)
         {
             reason = null;
 
@@ -197,6 +202,16 @@ namespace RimTalkCustomEvents.Scheduling
             if (!RimTalkBridge.IsTracked(pawn))
             {
                 reason = $"RimTalk isn't tracking {pawn.LabelShort} yet";
+                return false;
+            }
+
+            // The run cap is checked even for a dev/test fire: it's a property of the save,
+            // and quietly exceeding it would make the number meaningless.
+            if (def.HasRunLimit && RunCount(def) >= def.MaxRunsPerSave)
+            {
+                reason = def.MaxRunsPerSave == 0
+                    ? $"\"{def.Label}\" is set to never fire (limit 0)"
+                    : $"\"{def.Label}\" has already run {def.MaxRunsPerSave} time(s) this save";
                 return false;
             }
 
@@ -236,12 +251,70 @@ namespace RimTalkCustomEvents.Scheduling
 
             WarnAboutMonologuesOnce();
 
-            var instance = new EventInstance(def, pawn);
+            var instance = new EventInstance(def, pawn, participants);
             _instances.Add(instance);
             _lastFired[CooldownKey(pawn, def)] = Find.TickManager.TicksGame;
+            Bump(def);
 
             RTCELog.Message($"Started \"{def.Label}\" on {pawn.LabelShort}.");
             return true;
+        }
+
+        /// <summary>
+        /// Picks who the event affects and starts it, honouring target.count and
+        /// target.group. Independent means a separate event each; shared means one event
+        /// they all take part in.
+        /// </summary>
+        public bool TryStartFor(CustomEvent def, Map map, out string reason, bool bypassLimits = false)
+        {
+            reason = null;
+            if (def == null || map == null)
+            {
+                reason = "no event or map";
+                return false;
+            }
+
+            var wanted = Math.Max(1, def.Target.Count);
+            var picked = PawnSelector.TryPickMany(def, map, wanted);
+
+            if (picked.Count == 0)
+            {
+                reason = "nobody on the map matched its target filters";
+                return false;
+            }
+
+            if (def.Target.Group == GroupMode.Shared && picked.Count > 1)
+            {
+                return TryStart(def, picked[0], out reason, bypassLimits, picked.GetRange(1, picked.Count - 1));
+            }
+
+            // Independent: a separate event each. Counts as started if any of them did,
+            // since partial success is better than refusing the whole thing.
+            var started = 0;
+            string lastReason = null;
+
+            foreach (var pawn in picked)
+            {
+                if (TryStart(def, pawn, out var why, bypassLimits)) started++;
+                else lastReason = why;
+            }
+
+            if (started > 0) return true;
+
+            reason = lastReason ?? "no pawn could start it";
+            return false;
+        }
+
+        /// <summary>How many times this event has fired in this save.</summary>
+        public int RunCount(CustomEvent def)
+        {
+            return def != null && _runCounts.TryGetValue(def.DefName, out var count) ? count : 0;
+        }
+
+        private void Bump(CustomEvent def)
+        {
+            _runCounts.TryGetValue(def.DefName, out var count);
+            _runCounts[def.DefName] = count + 1;
         }
 
         private bool HasExclusionClash(CustomEvent def, Pawn pawn)
@@ -304,6 +377,7 @@ namespace RimTalkCustomEvents.Scheduling
             Scribe_Collections.Look(ref _lastFired, "lastFired", LookMode.Value, LookMode.Value);
             Scribe_Collections.Look(ref _lastAutoFireTick, "lastAutoFireTick", LookMode.Value, LookMode.Value);
             Scribe_Collections.Look(ref _lastDailyDay, "lastDailyDay", LookMode.Value, LookMode.Value);
+            Scribe_Collections.Look(ref _runCounts, "runCounts", LookMode.Value, LookMode.Value);
 
             if (Scribe.mode == LoadSaveMode.PostLoadInit)
             {
@@ -311,6 +385,7 @@ namespace RimTalkCustomEvents.Scheduling
                 _lastFired = _lastFired ?? new Dictionary<string, int>();
                 _lastAutoFireTick = _lastAutoFireTick ?? new Dictionary<string, int>();
                 _lastDailyDay = _lastDailyDay ?? new Dictionary<string, int>();
+                _runCounts = _runCounts ?? new Dictionary<string, int>();
 
                 // Drop anything that didn't survive the save: a deleted event file, or a
                 // pawn reference that no longer resolves.

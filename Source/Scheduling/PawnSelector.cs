@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using RimTalkCustomEvents.Data;
@@ -19,17 +20,42 @@ namespace RimTalkCustomEvents.Scheduling
     {
         public static Pawn TryPick(CustomEvent def, Map map)
         {
-            if (def == null || map == null) return null;
+            var picked = TryPickMany(def, map, 1);
+            return picked.Count > 0 ? picked[0] : null;
+        }
+
+        /// <summary>
+        /// Picks up to <paramref name="count"/> distinct eligible pawns, weighted. Returns
+        /// fewer than asked if fewer qualify — an event wanting three should still run with
+        /// two rather than not at all.
+        /// </summary>
+        public static List<Pawn> TryPickMany(CustomEvent def, Map map, int count)
+        {
+            var chosen = new List<Pawn>();
+            if (def == null || map == null || count <= 0) return chosen;
 
             var candidates = map.mapPawns.AllPawnsSpawned
                 .Where(p => IsEligible(def, p))
                 .ToList();
 
-            if (candidates.Count == 0) return null;
+            if (candidates.Count == 0) return chosen;
 
             var weights = candidates.Select(p => WeightFor(def, p)).ToList();
-            var index = Weighted.PickIndex(weights, Rand.Value);
-            return index < 0 ? null : candidates[index];
+
+            while (chosen.Count < count && candidates.Count > 0)
+            {
+                var index = Weighted.PickIndex(weights, Rand.Value);
+                if (index < 0) break;
+
+                chosen.Add(candidates[index]);
+
+                // Remove rather than re-roll, so the same pawn can't be picked twice and a
+                // heavily-weighted pawn doesn't stall the loop.
+                candidates.RemoveAt(index);
+                weights.RemoveAt(index);
+            }
+
+            return chosen;
         }
 
         /// <summary>Public so diagnostics can report the same eligibility the picker uses.</summary>
@@ -43,6 +69,15 @@ namespace RimTalkCustomEvents.Scheduling
             if (!RimTalkBridge.IsTracked(pawn)) return false;
 
             var target = def.Target;
+
+            // A named pawn narrows it to exactly that one. Names aren't stable identifiers,
+            // so a name nobody matches simply means the event can't fire.
+            if (!string.IsNullOrEmpty(target.SpecificPawnName)
+                && !string.Equals(pawn.LabelShort, target.SpecificPawnName, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(pawn.Name?.ToStringFull, target.SpecificPawnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
 
             if (!string.IsNullOrEmpty(target.Gender))
             {
@@ -134,7 +169,7 @@ namespace RimTalkCustomEvents.Scheduling
                         continue;
                     default:
                         if (pawn.kindDef != null &&
-                            string.Equals(pawn.kindDef.defName, kind, System.StringComparison.OrdinalIgnoreCase))
+                            string.Equals(pawn.kindDef.defName, kind, StringComparison.OrdinalIgnoreCase))
                             return true;
                         continue;
                 }
@@ -158,7 +193,7 @@ namespace RimTalkCustomEvents.Scheduling
                 // when the key isn't a defName.
                 var has = traitDef != null
                     ? traits.HasTrait(traitDef)
-                    : traits.allTraits.Any(t => string.Equals(t.Label, pair.Key, System.StringComparison.OrdinalIgnoreCase));
+                    : traits.allTraits.Any(t => string.Equals(t.Label, pair.Key, StringComparison.OrdinalIgnoreCase));
 
                 if (has) weight *= pair.Value;
             }

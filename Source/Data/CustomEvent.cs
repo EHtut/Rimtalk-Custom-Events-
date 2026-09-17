@@ -15,7 +15,28 @@ namespace RimTalkCustomEvents.Data
     {
         Manual,
         Daily,
+
+        /// <summary>Once a quadrum — RimWorld's month, 15 days.</summary>
+        Monthly,
+
+        Yearly,
         Occasionally
+    }
+
+    /// <summary>How several affected pawns relate to each other.</summary>
+    public enum GroupMode
+    {
+        /// <summary>
+        /// Each pawn gets their own copy of the event, on their own timing. Two colonists
+        /// catching the same chill separately.
+        /// </summary>
+        Independent,
+
+        /// <summary>
+        /// One event with several participants. Beats rotate between them and effects land
+        /// on all of them — a shared vision, or something they go through together.
+        /// </summary>
+        Shared
     }
 
     /// <summary>What to do when a pawn stays unavailable past a beat's timeout.</summary>
@@ -432,6 +453,19 @@ namespace RimTalkCustomEvents.Data
         /// <summary>Days before this event can hit the same pawn again.</summary>
         public float CooldownDays = 5f;
 
+        /// <summary>
+        /// Restricts the event to one named pawn. Matched against the pawn's short name.
+        /// Names are not stable identifiers — a rename or a different colony simply means
+        /// nobody matches, which is treated as "can't fire" rather than an error.
+        /// </summary>
+        public string SpecificPawnName;
+
+        /// <summary>How many pawns the event affects at once.</summary>
+        public int Count = 1;
+
+        /// <summary>Whether those pawns get separate events or share one.</summary>
+        public GroupMode Group = GroupMode.Independent;
+
         /// <summary>Events sharing a tag can't run on the same pawn at once.</summary>
         public List<string> ExclusionTags = new List<string>();
     }
@@ -476,6 +510,21 @@ namespace RimTalkCustomEvents.Data
         public EventTarget Target = new EventTarget();
         public List<CustomHediffSpec> CustomHediffs = new List<CustomHediffSpec>();
 
+        /// <summary>
+        /// How many times this event may fire in a single save. -1 means no limit, which is
+        /// the default — a cap is opt-in so 0 unambiguously means "never".
+        /// </summary>
+        public int MaxRunsPerSave = -1;
+
+        /// <summary>
+        /// Cut in over whatever the pawn was saying. Their unspoken queued lines are
+        /// discarded, and what they were about to say is fed into the BEGINNING prompt so
+        /// the event can pick up from where the conversation broke off.
+        /// </summary>
+        public bool Priority;
+
+        public bool HasRunLimit => MaxRunsPerSave >= 0;
+
         /// <summary>Absolute path this event was loaded from.</summary>
         public string SourcePath;
 
@@ -495,6 +544,8 @@ namespace RimTalkCustomEvents.Data
             };
 
             e.Label = root.GetString("label", e.DefName);
+            e.MaxRunsPerSave = root.GetInt("maxRunsPerSave", -1);
+            e.Priority = root.GetBool("priority");
 
             // ---- phases ----
             var phases = root.Get("phases");
@@ -576,6 +627,9 @@ namespace RimTalkCustomEvents.Data
                 e.Target.MinAge = target.GetFloat("minAge", -1f);
                 e.Target.MaxAge = target.GetFloat("maxAge", -1f);
                 e.Target.CooldownDays = target.GetFloat("cooldownDays", 5f);
+                e.Target.SpecificPawnName = target.GetString("pawnName");
+                e.Target.Count = Math.Max(1, target.GetInt("count", 1));
+                e.Target.Group = PhaseEffect.ParseEnum(target.GetString("group"), GroupMode.Independent);
                 e.Target.ExclusionTags = target.GetStringList("exclusionTags");
             }
 
@@ -669,6 +723,16 @@ namespace RimTalkCustomEvents.Data
             if (!Phases.End.HasText) errors.Add("missing \"phases.end\"");
 
             if (Timing.DurationHours <= 0f) errors.Add("\"timing.durationHours\" must be greater than 0");
+
+            if (Target.Count > 1 && !string.IsNullOrEmpty(Target.SpecificPawnName))
+            {
+                warnings.Add($"\"target.count\" is {Target.Count} but \"target.pawnName\" restricts it to one pawn — only that pawn will be affected");
+            }
+
+            if (MaxRunsPerSave == 0)
+            {
+                warnings.Add("\"maxRunsPerSave\" is 0, so this event can never fire");
+            }
 
             if (Timing.ContinueCount > 0 && !HasContinueText)
             {
