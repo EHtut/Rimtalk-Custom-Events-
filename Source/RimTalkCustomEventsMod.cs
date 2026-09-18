@@ -53,7 +53,7 @@ namespace RimTalkCustomEvents
             // question, and switching live answers it without another restart.
             if (mode == 1)
             {
-                var plain = new Listing_Standard();
+                var plain = new Listing_Standard { maxOneColumn = true };
                 plain.Begin(bodyRect);
 
                 if (_tab == Tab.Events) DrawEventsTab(plain);
@@ -74,7 +74,14 @@ namespace RimTalkCustomEvents
 
             Widgets.BeginScrollView(bodyRect, ref _scrollPosition, viewRect);
 
-            var listing = new Listing_Standard();
+            // maxOneColumn is the fix for the vanishing list. Listing_Standard wraps into
+            // a new column whenever content exceeds its rect height, and this rect is the
+            // scroll viewport sized to *last frame's* measured height. When an event
+            // expanded, the overflow wrapped into a second column off the right edge —
+            // drawn correctly, visible to nobody. CurHeight then measured that short
+            // second column, the viewport shrank to match, and the next frame wrapped
+            // even earlier: the visible region collapsed a little more every frame.
+            var listing = new Listing_Standard { maxOneColumn = true };
             listing.Begin(viewRect);
 
             if (_tab == Tab.Events) DrawEventsTab(listing);
