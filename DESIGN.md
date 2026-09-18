@@ -539,9 +539,15 @@ Last reviewed 2026-09-17. **Running in-game and confirmed working.**
 
 | Gap | Note |
 |---|---|
-| **`relationship` effect** | Designed but never built. |
-| **Multi-pawn events** | Deliberately out of scope; every event targets one pawn. The schema leaves room for a `roles` block. |
-| **No translations** | All UI strings are hardcoded English. Out of scope by decision (2026-09-17) — someone else can translate it later. |
+Nothing in the agreed feature set is outstanding. What remains is either out of
+scope by decision, or optional.
+
+| Item | Status |
+|---|---|
+| **In-game verification of the editor** | The only real gap. Expanding an event was broken until 2026-09-17, so the inline editor, def pickers, weighted-table editing and the whole selection layer have never actually been used in a running game. |
+| **`relationship` effect** | Never built, never requested — a leftover from an early draft of §6. Opinion change toward another pawn. Optional. |
+| **Per-role text in shared events** | Shared events rotate the beat between participants and name the others in the prompt. Giving each participant their own scripted lines would go further. Optional. |
+| **No translations** | Out of scope by decision (2026-09-17) — someone else can translate it later. |
 | **No Import / Export** | Out of scope by decision (2026-09-17). Events are files, so sharing one means sending the file. |
 
 ### Storage: settled
