@@ -115,6 +115,7 @@ namespace RimTalkCustomEvents.UI
             if (_draft == null)
             {
                 _drawnLastPass = _drawnThisPass;
+                _contentHeightLastPass = listing.CurHeight;
                 return;
             }
 
@@ -123,6 +124,7 @@ namespace RimTalkCustomEvents.UI
                 DrawEditor(listing, draftIsNew ? null : EventStore.Get(_expandedDefName)));
 
             _drawnLastPass = _drawnThisPass;
+            _contentHeightLastPass = listing.CurHeight;
         }
 
         /// <summary>
@@ -160,11 +162,17 @@ namespace RimTalkCustomEvents.UI
             }
         }
 
+        /// <summary>Where the first row was placed, for the state line.</summary>
+        private static Rect _firstRowRect;
+
         /// <summary>How many guarded pieces completed during the current pass.</summary>
         private static int _drawnThisPass;
 
         /// <summary>The previous pass's count, shown in the state line.</summary>
         private static int _drawnLastPass;
+
+        /// <summary>Total listing height at the end of the previous pass.</summary>
+        private static float _contentHeightLastPass;
 
         /// <summary>
         /// Says something when the drawn list and the loaded store disagree — the exact
@@ -197,8 +205,10 @@ namespace RimTalkCustomEvents.UI
                 listing.Label($"store {EventStore.Count} · listed {SortedEvents.Count}"
                               + $" · drew {_drawnLastPass}"
                               + $" · open {_expandedDefName ?? "none"}"
-                              + $" · draft {_draft?.DefName ?? "none"}"
-                              + $" · colWidth {listing.ColumnWidth:0} · height {listing.CurHeight:0}");
+                              + $" · colWidth {listing.ColumnWidth:0}"
+                              + $" · row0 x{_firstRowRect.x:0} y{_firstRowRect.y:0}"
+                              + $" w{_firstRowRect.width:0} h{_firstRowRect.height:0}"
+                              + $" · content {_contentHeightLastPass:0}");
             }
 
             GUI.color = previous;
@@ -304,6 +314,15 @@ namespace RimTalkCustomEvents.UI
         {
             var expanded = _expandedDefName == e.DefName;
             var row = listing.GetRect(RowHeight);
+
+            if (_drawnThisPass == 0) _firstRowRect = row;
+
+            // A solid block behind every row. Text can fail to paint for reasons a filled
+            // rect cannot — wrong font, colour alpha, a clipped glyph cache — so this
+            // separates "the row is not there" from "the row is there but invisible".
+            Widgets.DrawBoxSolid(row, expanded
+                ? new Color(0.25f, 0.30f, 0.38f)
+                : new Color(0.16f, 0.16f, 0.18f));
 
             if (Mouse.IsOver(row)) Widgets.DrawHighlight(row);
 
