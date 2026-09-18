@@ -94,6 +94,8 @@ namespace RimTalkCustomEvents.UI
             listing.Gap(4f);
             DrawHeaderRow(listing);
 
+            _drawnThisPass = 0;
+
             // The whole list is drawn first, and only then the editor for whichever row is
             // open. Drawing the editor inline between rows meant anything it did wrong took
             // the remaining rows down with it — the list appeared to vanish on click. Below
@@ -110,11 +112,17 @@ namespace RimTalkCustomEvents.UI
                 Guarded(listing, "the new event row", () => DrawNewDraftRow(listing));
             }
 
-            if (_draft == null) return;
+            if (_draft == null)
+            {
+                _drawnLastPass = _drawnThisPass;
+                return;
+            }
 
             listing.Gap(10f);
             Guarded(listing, "the editor", () =>
                 DrawEditor(listing, draftIsNew ? null : EventStore.Get(_expandedDefName)));
+
+            _drawnLastPass = _drawnThisPass;
         }
 
         /// <summary>
@@ -126,26 +134,37 @@ namespace RimTalkCustomEvents.UI
             try
             {
                 body();
+                _drawnThisPass++;
             }
             catch (Exception ex)
             {
-                // Collapse whatever was being edited: leaving it expanded would just throw
-                // again on the next frame and make the page unusable.
-                var wasExpanded = _expandedDefName;
-                Collapse();
+                // Deliberately touches nothing but fields. Drawing the error through the
+                // listing would use the very thing that just failed; if that throws too the
+                // exception escapes OnGUI, RimWorld abandons the whole window, and the
+                // message is never seen. The error is surfaced next frame by DrawLastError.
+                try
+                {
+                    var wasExpanded = _expandedDefName;
+                    Collapse();
 
-                _lastError = $"Drawing {what} failed: {ex.GetType().Name}: {ex.Message}";
+                    _lastError = $"Drawing {what} failed: {ex.GetType().Name}: {ex.Message}";
 
-                RTCELog.Error(
-                    $"UI draw failed for {what} (expanded: {wasExpanded ?? "none"}).{Environment.NewLine}"
-                    + ex);
-
-                var previous = GUI.color;
-                GUI.color = Color.red;
-                listing.Label("   " + _lastError);
-                GUI.color = previous;
+                    RTCELog.Error(
+                        $"UI draw failed for {what} (open: {wasExpanded ?? "none"}).{Environment.NewLine}" + ex);
+                }
+                catch
+                {
+                    // Even the reporting failed. Nothing more can safely be done here, and
+                    // the alternative is taking the window down.
+                }
             }
         }
+
+        /// <summary>How many guarded pieces completed during the current pass.</summary>
+        private static int _drawnThisPass;
+
+        /// <summary>The previous pass's count, shown in the state line.</summary>
+        private static int _drawnLastPass;
 
         /// <summary>
         /// Says something when the drawn list and the loaded store disagree — the exact
@@ -176,6 +195,7 @@ namespace RimTalkCustomEvents.UI
             {
                 GUI.color = new Color(0.7f, 0.7f, 0.7f);
                 listing.Label($"store {EventStore.Count} · listed {SortedEvents.Count}"
+                              + $" · drew {_drawnLastPass}"
                               + $" · open {_expandedDefName ?? "none"}"
                               + $" · draft {_draft?.DefName ?? "none"}"
                               + $" · colWidth {listing.ColumnWidth:0} · height {listing.CurHeight:0}");
