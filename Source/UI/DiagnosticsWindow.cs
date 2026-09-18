@@ -45,6 +45,23 @@ namespace RimTalkCustomEvents.UI
                 Messages.Message("Written to the dev console.", MessageTypeDefOf.TaskCompletion, false);
             }
 
+            if (Widgets.ButtonText(new Rect(inRect.xMax - 300f, inRect.y, 174f, 28f), "Test RimTalk connection"))
+            {
+                var pawn = RimTalkBridge.SendTestLine(out var problem);
+
+                if (pawn == null)
+                {
+                    Messages.Message("Test failed: " + problem, MessageTypeDefOf.RejectInput, false);
+                }
+                else
+                {
+                    Messages.Message(
+                        $"Test line queued for {pawn.LabelShortCap}. If the connection works they should "
+                        + "speak within a few seconds — watch their speech bubble.",
+                        pawn, MessageTypeDefOf.TaskCompletion, false);
+                }
+            }
+
             var bodyRect = new Rect(inRect.x, inRect.y + 38f, inRect.width, inRect.height - 44f);
             var height = Text.CalcHeight(_report, bodyRect.width - 20f);
             var viewRect = new Rect(0f, 0f, bodyRect.width - 20f, height);
@@ -89,11 +106,15 @@ namespace RimTalkCustomEvents.UI
             sb.AppendLine();
             sb.AppendLine("— RimTalk —");
 
+            var apiDescription = RimTalkBridge.DescribeApiConfig(out var apiUsable);
+            sb.AppendLine(apiUsable ? "  API: " + apiDescription : "  PROBLEM: " + apiDescription);
+
             if (RimTalkBridge.MonologuesDisabled())
             {
-                sb.AppendLine("  PROBLEM: RimTalk has \"allow monologue\" switched OFF.");
-                sb.AppendLine("    Events target one pawn, so beats will only reach the AI when");
-                sb.AppendLine("    another pawn happens to be nearby. Turn it on in RimTalk's settings.");
+                sb.AppendLine("  Note: RimTalk has \"allow monologue\" switched OFF.");
+                sb.AppendLine("    Beats are unaffected — they are queued as their own dedicated lines.");
+                sb.AppendLine("    But a lone pawn will rarely say anything else, so a CONTINUE modifier");
+                sb.AppendLine("    will have little ordinary dialogue to colour.");
             }
             else
             {

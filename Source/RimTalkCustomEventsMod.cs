@@ -90,22 +90,40 @@ namespace RimTalkCustomEvents
 
         private void DrawSettingsTab(Listing_Standard listing)
         {
+            Intro(listing,
+                "These settings apply to every event. The events themselves — what they say "
+                + "and do — live on the Events tab.");
+
+            Heading(listing, "Master");
+
             listing.CheckboxLabeled("Enable custom events", ref _settings.enabled,
                 "Master switch. When off, no events are scheduled and none fire.");
 
-            listing.Gap();
+            Hint(listing, "Turning this off mid-event also stops any active CONTINUE modifier "
+                          + "from colouring dialogue.");
+
+            listing.Gap(8f);
 
             listing.Label($"Event frequency: {_settings.frequencyMultiplier:0.00}x");
             _settings.frequencyMultiplier = listing.Slider(_settings.frequencyMultiplier, 0f, 3f);
+            Hint(listing, "Scales how often automatic events come up. 1x is as each event was "
+                          + "written; 0x stops automatic events entirely, leaving only Test fire.");
 
-            listing.Label($"Max events running at once (colony): {_settings.maxConcurrentGlobal}");
+            listing.Gap(8f);
+
+            listing.Label($"Most events at once, colony-wide: {_settings.maxConcurrentGlobal}");
             _settings.maxConcurrentGlobal = Mathf.RoundToInt(listing.Slider(_settings.maxConcurrentGlobal, 1, 10));
 
-            listing.Label($"Max events running at once (per pawn): {_settings.maxConcurrentPerPawn}");
+            listing.Label($"Most events at once, per pawn: {_settings.maxConcurrentPerPawn}");
             _settings.maxConcurrentPerPawn = Mathf.RoundToInt(listing.Slider(_settings.maxConcurrentPerPawn, 1, 5));
+            Hint(listing, "A pawn taking part in a shared event counts towards their own limit, "
+                          + "so they will not also be the focus of another.");
 
             listing.GapLine();
-            listing.Label("Who can events happen to?");
+            Heading(listing, "Who events can happen to");
+            Hint(listing, "An event can narrow this further with its own target filters. "
+                          + "Nothing outside these boxes is ever picked.");
+
             listing.CheckboxLabeled("Colonists", ref _settings.allowColonists);
             listing.CheckboxLabeled("Prisoners", ref _settings.allowPrisoners);
             listing.CheckboxLabeled("Slaves", ref _settings.allowSlaves);
@@ -114,7 +132,13 @@ namespace RimTalkCustomEvents
                 "Animals only speak if RimTalk's Vocal Link implant is installed.");
 
             listing.GapLine();
-            listing.Label("Prompt wrapper — tokens: {event} {phase} {index} {total} {pawn} {text}");
+            Heading(listing, "Prompt wrapper");
+            Hint(listing, "Wraps every beat before it reaches RimTalk. The phase marker is what "
+                          + "lets the model carry one beat on from the last, so keep {phase} and "
+                          + "{text} unless you know what you are replacing them with.");
+            Hint(listing, "Tokens:  {event}  {phase}  {phaseName}  {index}  {total}  {pawn}  "
+                          + "{intensity}  {text}");
+
             _settings.promptWrapper = listing.TextEntry(_settings.promptWrapper, 3);
             if (listing.ButtonText("Reset wrapper to default", null, 0.4f))
             {
@@ -122,8 +146,46 @@ namespace RimTalkCustomEvents
             }
 
             listing.GapLine();
+            Heading(listing, "Troubleshooting");
+
             listing.CheckboxLabeled("Verbose logging", ref _settings.debugLogging,
                 "Logs scheduling and beat delivery to the dev console. Noisy.");
+            Hint(listing, "Worth turning on the first time you test an event: it reports every "
+                          + "beat queuing, landing, or being held back, and why. It also adds a "
+                          + "state readout to the Events tab.");
+
+            listing.Gap(6f);
+            Hint(listing, "If nothing is firing, the Diagnostics button on the Events tab checks "
+                          + "everything at once — including whether RimTalk's API is configured.");
+        }
+
+        // ---------------------------------------------------------- text helpers
+
+        private static void Heading(Listing_Standard listing, string text)
+        {
+            Text.Font = GameFont.Medium;
+            listing.Label(text);
+            Text.Font = GameFont.Small;
+        }
+
+        /// <summary>Small grey explanatory text under a control.</summary>
+        private static void Hint(Listing_Standard listing, string text)
+        {
+            var previous = GUI.color;
+            Text.Font = GameFont.Tiny;
+            GUI.color = new Color(0.68f, 0.68f, 0.68f);
+            listing.Label(text);
+            GUI.color = previous;
+            Text.Font = GameFont.Small;
+        }
+
+        private static void Intro(Listing_Standard listing, string text)
+        {
+            var previous = GUI.color;
+            GUI.color = new Color(0.8f, 0.85f, 0.9f);
+            listing.Label(text);
+            GUI.color = previous;
+            listing.GapLine();
         }
 
         public override void WriteSettings()

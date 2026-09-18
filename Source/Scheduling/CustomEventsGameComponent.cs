@@ -270,6 +270,11 @@ namespace RimTalkCustomEvents.Scheduling
 
             if (countsAsRun) Bump(def);
 
+            // Open immediately rather than waiting up to a second for the next scheduler
+            // pass. Matters most for a test fire, where any delay reads as "nothing
+            // happened" and sends you looking for a bug that is not there.
+            instance.Tick();
+
             RTCELog.Message($"Started \"{def.Label}\" on {pawn.LabelShort}.");
             return true;
         }
@@ -381,9 +386,9 @@ namespace RimTalkCustomEvents.Scheduling
             if (RimTalkBridge.MonologuesDisabled())
             {
                 RTCELog.Warning(
-                    "RimTalk has \"allow monologue\" switched off. Custom events target a single pawn, " +
-                    "so their beats will only reach the AI when another pawn is nearby to talk to. " +
-                    "Turn monologues on in RimTalk's settings for these to work reliably.");
+                    "RimTalk has \"allow monologue\" switched off. Event beats are unaffected — they " +
+                    "are queued as their own dedicated lines — but a lone pawn will rarely say anything " +
+                    "else, so a CONTINUE modifier will have little ordinary dialogue to colour.");
             }
         }
 

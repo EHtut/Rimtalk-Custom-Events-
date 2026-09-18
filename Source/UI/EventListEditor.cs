@@ -72,6 +72,14 @@ namespace RimTalkCustomEvents.UI
         public static void Draw(Listing_Standard listing)
         {
             RefreshCaches();
+
+            var introColour = GUI.color;
+            GUI.color = new Color(0.8f, 0.85f, 0.9f);
+            listing.Label("Each event is a short story a colonist lives through: it opens, carries on "
+                          + "for a while, then ends. Click one to edit it in place.");
+            GUI.color = introColour;
+            listing.Gap(4f);
+
             DrawToolbar(listing);
             DrawProblems(listing);
             DrawLastError(listing);

@@ -62,12 +62,25 @@ namespace RimTalkCustomEvents.Integration
         }
 
         /// <summary>
-        /// Queues a beat and returns the request so its progress can be followed.
+        /// Queues a beat as its own dedicated line, and returns the request so its progress
+        /// can be followed.
+        ///
+        /// Beats go in as <c>TalkType.User</c>, not <c>TalkType.Event</c>. That is not a
+        /// cosmetic choice — the two take completely different routes through RimTalk:
+        ///
+        /// - User requests are drained every second by their own loop in TickManagerPatch,
+        ///   straight to GenerateTalk for this exact pawn.
+        /// - Event requests only fire if RimTalk's own pawn selector happens to pick this
+        ///   pawn, behind the talk-interval throttle and the "AI is busy" gate, and they
+        ///   expire after roughly 20 real-time seconds.
+        ///
+        /// User requests also never expire, and skip the AllowMonologue check that would
+        /// otherwise refuse a solo line. An event beat is an event, not idle chatter: it
+        /// should land whatever else is going on. Ambient blending is what the Modifier part
+        /// of CONTINUE is for, and that goes through a different channel entirely.
         ///
         /// RimTalk marks a request "spoken" when it is dispatched to the LLM, not when the
-        /// pawn's line appears on screen. It may also be consumed as scene context for a
-        /// nearby pawn's conversation rather than producing a dedicated line. Either way the
-        /// prompt reached the model, which is what we count as delivery.
+        /// pawn's line appears on screen.
         /// </summary>
         public static TalkRequest Deliver(Pawn pawn, string prompt, bool urgent = false)
         {
@@ -78,11 +91,12 @@ namespace RimTalkCustomEvents.Integration
                 var state = RimTalkCache.Get(pawn);
                 if (state == null) return null;
 
-                // Urgent clears the pawn's other pending requests, which is how RimTalk
-                // itself handles something that has to be said now.
-                state.AddTalkRequest(prompt, null, urgent ? TalkType.Urgent : TalkType.Event);
+                // Queuing as User also clears the pawn's pending unspoken lines, which is
+                // what makes a beat its own moment rather than a continuation of whatever
+                // they were mid-way through saying.
+                state.AddTalkRequest(prompt, null, TalkType.User);
 
-                // TalkType.Event is queued with AddFirst, so ours is at the head. Verify
+                // User requests are queued with AddFirst, so ours is at the head. Verify
                 // rather than assume, in case that ordering ever changes upstream.
                 var head = state.TalkRequests.First?.Value;
                 if (head != null && ReferenceEquals(head.RawPrompt, prompt))
@@ -131,9 +145,10 @@ namespace RimTalkCustomEvents.Integration
                 }
 
                 // Gone from both, which means RimTalk discarded it without recording an
-                // outcome. The usual cause is Cache.Refresh() evicting the whole PawnState
-                // when the pawn stops being talk-eligible — anaesthetised for surgery,
-                // downed, or despawned into a caravan — taking its queued requests with it.
+                // outcome. Beats are queued as User requests, which never expire, so the
+                // remaining cause is Cache.Refresh() evicting the whole PawnState when the
+                // pawn stops being talk-eligible — anaesthetised for surgery, downed, or
+                // despawned into a caravan — taking its queued requests with it.
                 //
                 // Treat that as lost, not delivered. Re-arming replays a line at worst;
                 // assuming delivery would silently run the phase's effects and advance the
@@ -235,8 +250,94 @@ namespace RimTalkCustomEvents.Integration
         }
 
         /// <summary>
-        /// True when RimTalk would reject a solo line. Single-pawn events can't deliver at
-        /// all in that state, so it's worth telling the player rather than failing quietly.
+        /// Describes RimTalk's active API configuration, or the reason there isn't one.
+        ///
+        /// Never returns the key itself — only whether one is present. An API key in a log
+        /// or a screenshot is a leaked credential.
+        /// </summary>
+        public static string DescribeApiConfig(out bool usable)
+        {
+            usable = false;
+
+            try
+            {
+                var config = RimTalk.Settings.Get()?.GetActiveConfig();
+                if (config == null)
+                {
+                    return "No API configuration is active. Set one up in RimTalk's own mod "
+                           + "settings — without it nothing can generate dialogue.";
+                }
+
+                var model = string.IsNullOrEmpty(config.CustomModelName)
+                    ? config.SelectedModel
+                    : config.CustomModelName;
+
+                var local = config.Provider.ToString() == "Local";
+                var hasKey = !string.IsNullOrWhiteSpace(config.ApiKey);
+
+                usable = local || hasKey;
+
+                var keyNote = local
+                    ? "local provider, no key needed"
+                    : hasKey ? "key is set" : "NO KEY SET";
+
+                return $"{config.Provider} · model {model ?? "(none chosen)"} · {keyNote}";
+            }
+            catch (Exception ex)
+            {
+                return $"Could not read RimTalk's API settings: {ex.Message}";
+            }
+        }
+
+        /// <summary>
+        /// Sends a real one-line request through the same path a beat uses, so a test
+        /// exercises the whole chain rather than just checking a key is present.
+        /// Returns the pawn it was sent to, or null with the reason.
+        /// </summary>
+        public static Pawn SendTestLine(out string problem)
+        {
+            problem = null;
+
+            var map = Find.CurrentMap;
+            if (map == null)
+            {
+                problem = "No map open — open a save first.";
+                return null;
+            }
+
+            Pawn target = null;
+            foreach (var pawn in map.mapPawns.FreeColonistsSpawned)
+            {
+                if (!IsTracked(pawn)) continue;
+                target = pawn;
+                if (CanSpeakNow(pawn)) break;
+            }
+
+            if (target == null)
+            {
+                problem = "RimTalk is not tracking any colonist on this map.";
+                return null;
+            }
+
+            var request = Deliver(target,
+                "[RIMTALK CUSTOM EVENTS - CONNECTION TEST] Say one short line, in character, "
+                + "remarking on the weather. This is a test of the dialogue connection.");
+
+            if (request == null)
+            {
+                problem = $"RimTalk refused the request for {target.LabelShort}.";
+                return null;
+            }
+
+            return target;
+        }
+
+        /// <summary>
+        /// True when RimTalk would reject an ordinary solo line.
+        ///
+        /// This no longer blocks beats — they go in as User requests, which skip that check
+        /// — but it still shapes the pawn's *other* dialogue, and therefore how often a
+        /// CONTINUE modifier has anything to colour.
         /// </summary>
         public static bool MonologuesDisabled()
         {
