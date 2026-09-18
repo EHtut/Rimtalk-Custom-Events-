@@ -94,19 +94,27 @@ namespace RimTalkCustomEvents.UI
             listing.Gap(4f);
             DrawHeaderRow(listing);
 
+            // The whole list is drawn first, and only then the editor for whichever row is
+            // open. Drawing the editor inline between rows meant anything it did wrong took
+            // the remaining rows down with it — the list appeared to vanish on click. Below
+            // the list, the worst an editor problem can do is affect the editor.
             foreach (var e in SortedEvents)
             {
-                // Guarded per row. RimWorld abandons the rest of a window when an exception
-                // escapes OnGUI, so without this one bad event blanks the entire page and
-                // gives no clue which one caused it.
                 Guarded(listing, "row \"" + (e.Label ?? e.DefName) + "\"", () => DrawEventRow(listing, e));
             }
 
             // A brand new event has no store entry yet, so it gets its own row at the end.
-            if (_draft != null && EventStore.Get(_draft.DefName) == null)
+            var draftIsNew = _draft != null && EventStore.Get(_draft.DefName) == null;
+            if (draftIsNew)
             {
-                Guarded(listing, "the new event", () => DrawNewDraftRow(listing));
+                Guarded(listing, "the new event row", () => DrawNewDraftRow(listing));
             }
+
+            if (_draft == null) return;
+
+            listing.Gap(10f);
+            Guarded(listing, "the editor", () =>
+                DrawEditor(listing, draftIsNew ? null : EventStore.Get(_expandedDefName)));
         }
 
         /// <summary>
@@ -147,8 +155,12 @@ namespace RimTalkCustomEvents.UI
         {
             var settings = RimTalkCustomEventsMod.Settings;
             var mismatch = SortedEvents.Count != EventStore.Count;
+            var editing = _draft != null;
 
-            if (!mismatch && (settings == null || !settings.debugLogging)) return;
+            // Shown whenever something is open, not just under verbose logging: that is
+            // exactly the moment the list has misbehaved, and it turns "it vanished" into
+            // a number that says which part is missing.
+            if (!mismatch && !editing && (settings == null || !settings.debugLogging)) return;
 
             var previous = GUI.color;
             Text.Font = GameFont.Tiny;
@@ -160,11 +172,11 @@ namespace RimTalkCustomEvents.UI
                               + "that is a bug, please report it.");
             }
 
-            if (settings != null && settings.debugLogging)
+            if (editing || (settings != null && settings.debugLogging))
             {
                 GUI.color = new Color(0.7f, 0.7f, 0.7f);
                 listing.Label($"store {EventStore.Count} · listed {SortedEvents.Count}"
-                              + $" · expanded {_expandedDefName ?? "none"}"
+                              + $" · open {_expandedDefName ?? "none"}"
                               + $" · draft {_draft?.DefName ?? "none"}"
                               + $" · colWidth {listing.ColumnWidth:0} · height {listing.CurHeight:0}");
             }
@@ -296,8 +308,6 @@ namespace RimTalkCustomEvents.UI
             }
 
             Widgets.DrawLineHorizontal(row.x, row.yMax, row.width);
-
-            if (expanded && _draft != null) DrawEditor(listing, e);
         }
 
         private static void DrawNewDraftRow(Listing_Standard listing)
@@ -315,7 +325,6 @@ namespace RimTalkCustomEvents.UI
             Text.Font = GameFont.Small;
 
             Widgets.DrawLineHorizontal(row.x, row.yMax, row.width);
-            DrawEditor(listing, null);
         }
 
         /// <summary>The Status column: what this event is and when it fires.</summary>
@@ -419,7 +428,12 @@ namespace RimTalkCustomEvents.UI
         private static void DrawEditor(Listing_Standard listing, CustomEvent original)
         {
             var e = _draft;
-            listing.Gap(6f);
+            if (e == null) return;
+
+            Text.Font = GameFont.Medium;
+            listing.Label($"Editing: {e.Label}");
+            Text.Font = GameFont.Small;
+            listing.GapLine();
 
             if (_draftHasComments)
             {
