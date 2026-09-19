@@ -94,7 +94,7 @@ namespace RimTalkCustomEvents.UI
             listing.Gap(4f);
             DrawHeaderRow(listing);
 
-            _drawnThisPass = 0;
+            _rowIndex = 0;
 
             // The whole list is drawn first, and only then the editor for whichever row is
             // open. Drawing the editor inline between rows meant anything it did wrong took
@@ -112,19 +112,11 @@ namespace RimTalkCustomEvents.UI
                 Guarded(listing, "the new event row", () => DrawNewDraftRow(listing));
             }
 
-            if (_draft == null)
-            {
-                _drawnLastPass = _drawnThisPass;
-                _contentHeightLastPass = listing.CurHeight;
-                return;
-            }
+            if (_draft == null) return;
 
             listing.Gap(10f);
             Guarded(listing, "the editor", () =>
                 DrawEditor(listing, draftIsNew ? null : EventStore.Get(_expandedDefName)));
-
-            _drawnLastPass = _drawnThisPass;
-            _contentHeightLastPass = listing.CurHeight;
         }
 
         /// <summary>
@@ -136,7 +128,6 @@ namespace RimTalkCustomEvents.UI
             try
             {
                 body();
-                _drawnThisPass++;
             }
             catch (Exception ex)
             {
@@ -162,17 +153,8 @@ namespace RimTalkCustomEvents.UI
             }
         }
 
-        /// <summary>Where the first row was placed, for the state line.</summary>
-        private static Rect _firstRowRect;
-
-        /// <summary>How many guarded pieces completed during the current pass.</summary>
-        private static int _drawnThisPass;
-
-        /// <summary>The previous pass's count, shown in the state line.</summary>
-        private static int _drawnLastPass;
-
-        /// <summary>Total listing height at the end of the previous pass.</summary>
-        private static float _contentHeightLastPass;
+        /// <summary>Row counter for alternate-row banding, reset each pass.</summary>
+        private static int _rowIndex;
 
         /// <summary>
         /// Says something when the drawn list and the loaded store disagree — the exact
@@ -182,12 +164,9 @@ namespace RimTalkCustomEvents.UI
         {
             var settings = RimTalkCustomEventsMod.Settings;
             var mismatch = SortedEvents.Count != EventStore.Count;
-            var editing = _draft != null;
-
-            // Shown whenever something is open, not just under verbose logging: that is
-            // exactly the moment the list has misbehaved, and it turns "it vanished" into
-            // a number that says which part is missing.
-            if (!mismatch && !editing && (settings == null || !settings.debugLogging)) return;
+            // The mismatch warning stays as cheap insurance against the list and the store
+            // ever disagreeing again; the rest is verbose-only.
+            if (!mismatch && (settings == null || !settings.debugLogging)) return;
 
             var previous = GUI.color;
             Text.Font = GameFont.Tiny;
@@ -199,16 +178,12 @@ namespace RimTalkCustomEvents.UI
                               + "that is a bug, please report it.");
             }
 
-            if (editing || (settings != null && settings.debugLogging))
+            if (settings != null && settings.debugLogging)
             {
                 GUI.color = new Color(0.7f, 0.7f, 0.7f);
                 listing.Label($"store {EventStore.Count} · listed {SortedEvents.Count}"
-                              + $" · drew {_drawnLastPass}"
                               + $" · open {_expandedDefName ?? "none"}"
-                              + $" · colWidth {listing.ColumnWidth:0}"
-                              + $" · row0 x{_firstRowRect.x:0} y{_firstRowRect.y:0}"
-                              + $" w{_firstRowRect.width:0} h{_firstRowRect.height:0}"
-                              + $" · content {_contentHeightLastPass:0}");
+                              + $" · draft {_draft?.DefName ?? "none"}");
             }
 
             GUI.color = previous;
@@ -315,14 +290,13 @@ namespace RimTalkCustomEvents.UI
             var expanded = _expandedDefName == e.DefName;
             var row = listing.GetRect(RowHeight);
 
-            if (_drawnThisPass == 0) _firstRowRect = row;
+            // Subtle banding so a long list stays readable, and a clear tint on the open
+            // row. This started life as a diagnostic for the vanishing-list bug and earned
+            // its place.
+            if (expanded) Widgets.DrawBoxSolid(row, new Color(0.24f, 0.29f, 0.36f));
+            else if (_rowIndex % 2 == 1) Widgets.DrawBoxSolid(row, new Color(1f, 1f, 1f, 0.025f));
 
-            // A solid block behind every row. Text can fail to paint for reasons a filled
-            // rect cannot — wrong font, colour alpha, a clipped glyph cache — so this
-            // separates "the row is not there" from "the row is there but invisible".
-            Widgets.DrawBoxSolid(row, expanded
-                ? new Color(0.25f, 0.30f, 0.38f)
-                : new Color(0.16f, 0.16f, 0.18f));
+            _rowIndex++;
 
             if (Mouse.IsOver(row)) Widgets.DrawHighlight(row);
 
@@ -642,7 +616,10 @@ namespace RimTalkCustomEvents.UI
                 if (Widgets.ButtonText(new Rect(row.xMax - 28f, row.y, 24f, 22f), "×"))
                 {
                     effects.Remove(effect);
+                    continue;
                 }
+
+                DrawEffectFields(listing, effect);
 
                 if (offerScaling)
                 {
@@ -709,6 +686,76 @@ namespace RimTalkCustomEvents.UI
             {
                 ShowAddEffectMenu(table.OneOf, offerScaling, includeNothing: true);
             }
+        }
+
+        /// <summary>
+        /// The adjustable numbers on an effect. Without these an effect could only ever be
+        /// added at its default strength, which made hediffs and needs useless in practice.
+        ///
+        /// Sliders rather than typed fields: these are all feel, not precision, and a slider
+        /// shows the available range at a glance.
+        /// </summary>
+        private static void DrawEffectFields(Listing_Standard listing, PhaseEffect fx)
+        {
+            var id = fx.GetHashCode();
+
+            if (fx.Hediff != null)
+            {
+                Slider(listing, $"      severity {fx.Hediff.Severity:+0.00;-0.00;0.00}",
+                    ref fx.Hediff.Severity, -1f, 1f);
+
+                // Negative severity is how an event lifts a hediff it applied earlier, so
+                // say so rather than leaving it looking like a mistake.
+                if (fx.Hediff.Severity < 0f)
+                {
+                    Hint(listing, "      Negative reduces it — far enough below zero removes it entirely.");
+                }
+
+                if (listing.ButtonText(fx.Hediff.Mode == HediffApplyMode.Add
+                        ? "      adds to what they already have"
+                        : "      sets it exactly, ignoring what they have", null, 0.55f))
+                {
+                    fx.Hediff.Mode = fx.Hediff.Mode == HediffApplyMode.Add
+                        ? HediffApplyMode.Set
+                        : HediffApplyMode.Add;
+                }
+            }
+
+            if (fx.Need != null)
+            {
+                Slider(listing, $"      {fx.Need.Def} {fx.Need.Offset:+0.00;-0.00;0.00}",
+                    ref fx.Need.Offset, -1f, 1f);
+            }
+
+            if (!string.IsNullOrEmpty(fx.SkillXpSkill))
+            {
+                fx.SkillXpAmount = Number(listing, "      XP awarded", "xp" + id, fx.SkillXpAmount, 0f, 100000f);
+            }
+
+            foreach (var item in fx.Items)
+            {
+                item.Count = (int)Number(listing, $"      how many {item.Def}", "it" + id + item.Def,
+                    item.Count, 1f, 5000f);
+            }
+
+            if (fx.Nothing || fx.HasOneOf) return;
+
+            Slider(listing, fx.Chance >= 1f
+                ? "      always happens"
+                : $"      {fx.Chance:P0} chance of happening", ref fx.Chance, 0f, 1f);
+        }
+
+        private static void Slider(Listing_Standard listing, string label, ref float value,
+            float min, float max)
+        {
+            Text.Font = GameFont.Tiny;
+            var previous = GUI.color;
+            GUI.color = new Color(0.78f, 0.78f, 0.78f);
+            listing.Label(label);
+            GUI.color = previous;
+            Text.Font = GameFont.Small;
+
+            value = listing.Slider(value, min, max);
         }
 
         private static string Describe(PhaseEffect fx)
@@ -864,27 +911,35 @@ namespace RimTalkCustomEvents.UI
                 Text.Font = GameFont.Small;
             }
 
+            // No checkbox here. An earlier version gated the button behind one whose state
+            // was derived from whether a name was already set, so ticking it reverted on the
+            // next frame and the button was unreachable. The choice itself is the state.
             var named = !string.IsNullOrEmpty(t.SpecificPawnName);
-            var wantsNamed = named;
-            listing.CheckboxLabeled("Only one specific pawn", ref wantsNamed,
-                "Matched by name. A name nobody on the map has simply means the event cannot fire, "
-                + "so this will not carry across to a different colony.");
 
-            if (!wantsNamed && named) t.SpecificPawnName = null;
+            var pawnRow = listing.GetRect(28f);
+            Widgets.Label(new Rect(pawnRow.x, pawnRow.y + 4f, pawnRow.width * 0.34f, pawnRow.height),
+                "Only this pawn:");
 
-            if (wantsNamed)
+            var previousColour = GUI.color;
+            if (!named) GUI.color = new Color(0.65f, 0.65f, 0.65f);
+            Widgets.Label(new Rect(pawnRow.x + pawnRow.width * 0.34f, pawnRow.y + 4f,
+                pawnRow.width * 0.24f, pawnRow.height), named ? t.SpecificPawnName : "anyone");
+            GUI.color = previousColour;
+
+            if (Widgets.ButtonText(new Rect(pawnRow.x + pawnRow.width * 0.6f, pawnRow.y,
+                    pawnRow.width * 0.24f, 26f), "Choose..."))
             {
-                var pawnRow = listing.GetRect(26f);
-                Widgets.Label(new Rect(pawnRow.x + 14f, pawnRow.y + 3f, pawnRow.width * 0.42f, pawnRow.height),
-                    named ? t.SpecificPawnName : "(nobody chosen)");
-
-                if (Widgets.ButtonText(
-                        new Rect(pawnRow.x + pawnRow.width * 0.5f, pawnRow.y, pawnRow.width * 0.5f, 24f),
-                        "Choose a colonist..."))
-                {
-                    ShowPawnMenu(t);
-                }
+                ShowPawnMenu(t);
             }
+
+            if (named && Widgets.ButtonText(new Rect(pawnRow.x + pawnRow.width * 0.86f, pawnRow.y,
+                    pawnRow.width * 0.14f, 26f), "Any"))
+            {
+                t.SpecificPawnName = null;
+            }
+
+            Hint(listing, "Matched by name, so it will not carry across to a different colony — "
+                          + "a name nobody has means the event simply cannot fire.");
 
             t.CooldownDays = Number(listing, "Cooldown per pawn (days)", "cooldown", t.CooldownDays, 0f, 360f);
 
@@ -1202,6 +1257,17 @@ namespace RimTalkCustomEvents.UI
         }
 
         // -------------------------------------------------------------- helpers
+
+        /// <summary>Small grey explanatory text under a control.</summary>
+        private static void Hint(Listing_Standard listing, string text)
+        {
+            var previous = GUI.color;
+            Text.Font = GameFont.Tiny;
+            GUI.color = new Color(0.66f, 0.66f, 0.66f);
+            listing.Label(text);
+            GUI.color = previous;
+            Text.Font = GameFont.Small;
+        }
 
         private static void Heading(Listing_Standard listing, string text)
         {

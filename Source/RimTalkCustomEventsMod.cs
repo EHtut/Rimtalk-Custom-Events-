@@ -46,31 +46,7 @@ namespace RimTalkCustomEvents
             DrawTabs(tabRect);
 
             var bodyRect = new Rect(inRect.x, inRect.y + 36f, inRect.width, inRect.height - 36f);
-            var mode = _settings?.uiLayoutMode ?? 0;
-
-            // Mode 1 skips the scroll view entirely. If the rows appear here but not in
-            // mode 0, the scroll view's viewport is clipping them — which is the whole
-            // question, and switching live answers it without another restart.
-            if (mode == 1)
-            {
-                var plain = new Listing_Standard { maxOneColumn = true };
-                plain.Begin(bodyRect);
-
-                if (_tab == Tab.Events) DrawEventsTab(plain);
-                else DrawSettingsTab(plain);
-
-                _contentHeight = plain.CurHeight + 24f;
-                plain.End();
-                return;
-            }
-
-            // Mode 2 keeps the scroll view but gives it a viewport far taller than anything
-            // could need, so a stale or undersized measurement cannot clip anything.
-            var viewHeight = mode == 2
-                ? Mathf.Max(_contentHeight, 6000f)
-                : _contentHeight;
-
-            var viewRect = new Rect(0f, 0f, bodyRect.width - 20f, viewHeight);
+            var viewRect = new Rect(0f, 0f, bodyRect.width - 20f, _contentHeight);
 
             Widgets.BeginScrollView(bodyRect, ref _scrollPosition, viewRect);
 
@@ -91,16 +67,6 @@ namespace RimTalkCustomEvents
             listing.End();
 
             Widgets.EndScrollView();
-        }
-
-        private static string DescribeLayoutMode(int mode)
-        {
-            switch (mode)
-            {
-                case 1: return "2 - no scroll view";
-                case 2: return "3 - oversized viewport";
-                default: return "1 - normal";
-            }
         }
 
         private void DrawTabs(Rect rect)
@@ -188,17 +154,6 @@ namespace RimTalkCustomEvents
 
             listing.GapLine();
             Heading(listing, "Troubleshooting");
-
-            if (listing.ButtonText($"Page layout: {DescribeLayoutMode(_settings.uiLayoutMode)}", null, 0.6f))
-            {
-                _settings.uiLayoutMode = (_settings.uiLayoutMode + 1) % 3;
-            }
-
-            Hint(listing, "Only useful for diagnosing a display problem. If the event list looks "
-                          + "empty on the Events tab, cycle this and see whether the rows appear — "
-                          + "which one works says where the fault is. Leave it on 1 otherwise.");
-
-            listing.Gap(6f);
 
             listing.CheckboxLabeled("Verbose logging", ref _settings.debugLogging,
                 "Logs scheduling and beat delivery to the dev console. Noisy.");

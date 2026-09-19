@@ -545,7 +545,7 @@ scope by decision, or optional.
 
 | Item | Status |
 |---|---|
-| **In-game verification of the editor** | The only real gap. Expanding an event was broken until 2026-09-17, so the inline editor, def pickers, weighted-table editing and the whole selection layer have never actually been used in a running game. |
+| **In-game verification of the editor** | Largely closed. The list and editor work as of 2026-09-18; def pickers, weighted tables and the effect sliders still want a pass in anger. |
 | **`relationship` effect** | Never built, never requested — a leftover from an early draft of §6. Opinion change toward another pawn. Optional. |
 | **Per-role text in shared events** | Shared events rotate the beat between participants and name the others in the prompt. Giving each participant their own scripted lines would go further. Optional. |
 | **No translations** | Out of scope by decision (2026-09-17) — someone else can translate it later. |
@@ -571,6 +571,27 @@ newlines, so they are unreadable outside its own editor. Ours are pretty-printed
 take comments.
 
 ---
+
+### The vanishing settings page (2026-09-18)
+
+`Listing_Standard` silently wraps into a **new column** when content exceeds the height
+of the rect it was begun with. The settings page began its listing on the scroll
+viewport, which is sized from the *previous* frame's measured height — so the moment an
+event expanded, the overflow wrapped into a second column off the right edge of the
+window. Drawn without error, visible to nobody.
+
+It then fed itself: `CurHeight` measured the short second column, the viewport shrank to
+match, and the next frame wrapped earlier still. The visible region collapsed a little
+more every frame, which is why the cutoff *moved* — first the rows went, then the
+header, and after a Reload only the intro line survived.
+
+`maxOneColumn = true` disables the wrapping. Content flows downward regardless of the
+rect height and the scroll view does its job.
+
+**Why it took so long:** every early theory assumed an exception, because "content
+missing" usually means one. Instrumenting instead of reasoning is what cracked it — a
+counter showing the rows *had* drawn successfully ruled out the entire class of theory
+in one boot. A moving cutoff is a layout fingerprint, not a crash.
 
 ### Second audit (editor, writer, modifiers)
 

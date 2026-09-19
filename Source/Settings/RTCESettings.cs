@@ -36,15 +36,6 @@ namespace RimTalkCustomEvents.Settings
 
         public bool debugLogging = false;
 
-        /// <summary>
-        /// How the settings page lays itself out. Switchable live because diagnosing a
-        /// layout problem otherwise costs a full game restart per attempt.
-        /// 0 = scroll view sized to measured content (original)
-        /// 1 = no scroll view at all
-        /// 2 = scroll view with a deliberately oversized viewport
-        /// </summary>
-        public int uiLayoutMode;
-
         public const string DefaultPromptWrapper = "[EVENT: {event} — {phase}]\n{text}";
 
         public override void ExposeData()
@@ -61,7 +52,6 @@ namespace RimTalkCustomEvents.Settings
             Scribe_Values.Look(ref allowAnimals, "allowAnimals", false);
             Scribe_Values.Look(ref promptWrapper, "promptWrapper", DefaultPromptWrapper);
             Scribe_Values.Look(ref debugLogging, "debugLogging", false);
-            Scribe_Values.Look(ref uiLayoutMode, "uiLayoutMode", 0);
 
             if (Scribe.mode == LoadSaveMode.PostLoadInit && string.IsNullOrEmpty(promptWrapper))
             {
